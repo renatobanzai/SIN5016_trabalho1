@@ -1,13 +1,18 @@
 import numpy as np
 import math
 from cvxopt import matrix, solvers
+import matplotlib.pylab as plt
+import h5py
+import datetime
+import pickle
+import random
 
 class SVM:
     def __init__(self, X, Y, alpha0):
         self.X = X
         self.Y = Y
         self.alpha0 = alpha0
-        self.kkttol = 5e-2
+        self.kkttol = 5e-4
         self.chunksize = 50
         self.bias = []
         self.sv = []
@@ -16,7 +21,7 @@ class SVM:
         self.C = 10
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-2
+        self.alphatol = 1e-20
         self.SVThresh = 0.
         self.qpsize = 6
 
@@ -88,7 +93,7 @@ class SVM:
             # Passo 3: Calcule o bias da função de decisão
             workSV = np.flatnonzero(np.logical_and(self.SVnonBound, workset))
             if not workSV.size == 0:
-                svm.bias = np.mean(Y[workSV] - saida_svm[workSV])
+                self.bias = np.mean(Y[workSV] - saida_svm[workSV])
 
 
             # Passo 4: Calcula as condicoes de KKT
@@ -194,7 +199,7 @@ class SVM:
             # cvxopt = quadprog(C1, C2, C3, C4, C5, C6      , C7 , C8 ,
             # matlab = quadprog(H , f , [], [], A , eqconstr, VLB, VUB, startVal,
 
-            _H = matrix(H) #P
+            # _H = matrix(H) #P #todo: ver direito isso ae
             _f = matrix(f) #q
 
             tmp1 = np.diag(np.ones(worksize) * -1)
@@ -283,34 +288,187 @@ class SVM:
         Y[Y==0] = 1
         return Y, Y1
 
+def split_data(dataset, id, train_percent):
+  dataset = dataset[np.where(dataset[:,0]==id)]
+  train_registers = int(dataset.shape[0] * train_percent)
+  test_registers = dataset.shape[0] - train_registers
+  if test_registers == 0 or train_registers == 0:
+    print("Id {} com registros insuficientes.".format(id))
+    x_train = dataset[0:0, 1:]
+    y_train = dataset[0:0, [0]]
+    x_test = dataset[0:0, 1:]
+    y_test = dataset[0:0, [0]]
+  else:
+    x_train = dataset[0:train_registers, 1:]
+    y_train = dataset[0:train_registers, [0]]
+    x_test = dataset[train_registers:, 1:]
+    y_test = dataset[train_registers:, [0]]
+
+  return x_train, y_train, x_test, y_test
+
+def train_hog(path_hog):
+    time_start = datetime.datetime.now()
+    f = h5py.File(path_hog, 'r')
+
+    hog_array = np.array(f['descriptor'])  # numpy array
+
+    qtd_classes = 2
+    percent_train = 0.6
+
+    random.seed(2)
+    classes = np.unique(hog_array[:, 0])
+    random.shuffle(classes)
+    classes = classes[0: qtd_classes]
+    classes = np.array(classes)
+    # inicializa com o id 0
+    x_train_hog, y_train_hog, x_test_hog, y_test_hog = split_data(hog_array, 0, percent_train)
+
+    for classe in classes:
+        # concatena os conjuntos
+        x_tr, y_tr, x_te, y_te = split_data(hog_array, classe, percent_train)
+        x_train_hog = np.concatenate([x_train_hog, x_tr])
+        y_train_hog = np.concatenate([y_train_hog, y_tr])
+        x_test_hog = np.concatenate([x_test_hog, x_te])
+        y_test_hog = np.concatenate([y_test_hog, y_te])
+
+    train_x, train_y, test_x, test_y = x_train_hog, y_train_hog, x_test_hog, y_test_hog
+
+    # normalizando para valores
+    train_x = train_x / 255.
+    test_x = test_x / 255.
+
+    train_y[train_y == 1974] = 1
+    train_y[train_y == 1937] = -1
+
+    test_y[test_y == 1974] = 1
+    test_y[test_y == 1937] = -1
+
+    print("train_x's shape: " + str(train_x.shape))
+    print("test_x's shape: " + str(test_x.shape))
+
+    svm = SVM(train_x, train_y, 10 ** -2)
+    svm.prep()
+    svm.trainSVM()
+
+    Ysvm, Y1svm = svm.calc_saida(train_x)
+
+    pos = np.flatnonzero(train_y == 1)
+    neg = np.flatnonzero(train_y == -1)
+
+    TP = np.sum(Ysvm[pos] == 1)
+    FN = np.sum(Ysvm[pos] == -1)
+    TN = np.sum(Ysvm[neg] == -1)
+    FP = np.sum(Ysvm[neg] == 1)
+
+    precisao = TP / (TP + FP)
+    recall = TN / (TN + FN)
+    acuracia = (TP + TN) / (TP + TN + FP + FN)
+
+    print("Treino - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+
+    # Teste
+
+    Ysvm, Y1svm = svm.calc_saida(test_x)
+
+    pos = np.flatnonzero(test_y == 1)
+    neg = np.flatnonzero(test_y == -1)
+
+    TP = np.sum(Ysvm[pos] == 1)
+    FN = np.sum(Ysvm[pos] == -1)
+    TN = np.sum(Ysvm[neg] == -1)
+    FP = np.sum(Ysvm[neg] == 1)
+
+    precisao = TP / (TP + FP)
+    recall = TN / (TN + FN)
+    acuracia = (TP + TN) / (TP + TN + FP + FN)
+
+    print("Teste - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+
+    time_end = datetime.datetime.now()
 
 
-X = np.array([[2,7],[3 ,6],[2,2],[8,1],[6,4],[4,8],[9,5],[9,9],[9,4],[6,9],[7,4],[4,4]])
-Y = np.array([[1],[1],[1],[1],[1],[-1],[-1],[-1],[-1],[-1],[-1],[-1]])
+def train_lbp(path_lbp):
+    time_start = datetime.datetime.now()
+    f = h5py.File(path_lbp, 'r')
 
-# X = np.array([[2,1],[3,1],[2, 1],[8, 1],[6, 4],[4, 8],[9,5],[9, 9],[9, 4],[6, 9],[7, 4],[4, 4]])
-# Y = np.array([[1],[1],[1],[1],[1],[-1],[-1],[-1],[-1],[-1],[-1],[-1]])
+    hog_array = np.array(f['descriptor'])  # numpy array
+
+    qtd_classes = 2
+    percent_train = 0.6
+
+    random.seed(2)
+    classes = np.unique(hog_array[:, 0])
+    random.shuffle(classes)
+    classes = classes[0: qtd_classes]
+    classes = np.array(classes)
+    # inicializa com o id 0
+    x_train_hog, y_train_hog, x_test_hog, y_test_hog = split_data(hog_array, 0, percent_train)
+
+    for classe in classes:
+        # concatena os conjuntos
+        x_tr, y_tr, x_te, y_te = split_data(hog_array, classe, percent_train)
+        x_train_hog = np.concatenate([x_train_hog, x_tr])
+        y_train_hog = np.concatenate([y_train_hog, y_tr])
+        x_test_hog = np.concatenate([x_test_hog, x_te])
+        y_test_hog = np.concatenate([y_test_hog, y_te])
+
+    train_x, train_y, test_x, test_y = x_train_hog, y_train_hog, x_test_hog, y_test_hog
+
+    # normalizando para valores
+    train_x = train_x / 255.
+    test_x = test_x / 255.
+
+    train_y[train_y == 1974] = 1
+    train_y[train_y == 1937] = -1
+
+    test_y[test_y == 1974] = 1
+    test_y[test_y == 1937] = -1
+
+    print("train_x's shape: " + str(train_x.shape))
+    print("test_x's shape: " + str(test_x.shape))
+
+    svm = SVM(train_x, train_y, 10 ** -2)
+    svm.prep()
+    svm.trainSVM()
+
+    Ysvm, Y1svm = svm.calc_saida(train_x)
+
+    pos = np.flatnonzero(train_y == 1)
+    neg = np.flatnonzero(train_y == -1)
+
+    TP = np.sum(Ysvm[pos] == 1)
+    FN = np.sum(Ysvm[pos] == -1)
+    TN = np.sum(Ysvm[neg] == -1)
+    FP = np.sum(Ysvm[neg] == 1)
+
+    precisao = TP / (TP + FP)
+    recall = TN / (TN + FN)
+    acuracia = (TP + TN) / (TP + TN + FP + FN)
+
+    print("Treino - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+
+    # Teste
+
+    Ysvm, Y1svm = svm.calc_saida(test_x)
+
+    pos = np.flatnonzero(test_y == 1)
+    neg = np.flatnonzero(test_y == -1)
+
+    TP = np.sum(Ysvm[pos] == 1)
+    FN = np.sum(Ysvm[pos] == -1)
+    TN = np.sum(Ysvm[neg] == -1)
+    FP = np.sum(Ysvm[neg] == 1)
+
+    precisao = TP / (TP + FP)
+    recall = TN / (TN + FN)
+    acuracia = (TP + TN) / (TP + TN + FP + FN)
+
+    print("Teste - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+
+    time_end = datetime.datetime.now()
 
 
-# X = np.array([[1, 1], [1, 0], [0, 1], [0, 0]])
-# Y = np.array([[-1],[1],[1],[-1]])
 
-svm = SVM(X, Y, 10**-2)
-svm.prep()
-svm.trainSVM()
 
-Ysvm, Y1svm = svm.calc_saida(X)
-
-pos = np.flatnonzero(Y==1)
-neg = np.flatnonzero(Y==-1)
-
-TP = np.sum(Ysvm[pos]==1)
-FN = np.sum(Ysvm[pos]==-1)
-TN = np.sum(Ysvm[neg]==-1)
-FP = np.sum(Ysvm[neg]==1)
-
-precisao = TP / (TP+FP)
-recall = TN / (TN+FN)
-acuracia= (TP+TN)/(TP+TN+FP+FN)
-
-print("Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+train_hog("./data/hog_11_15_20_56")
+# train_lbp("./data/lbp_grid_total")
