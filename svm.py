@@ -1,4 +1,5 @@
 import numpy as np
+import cupy as cp
 import math
 from cvxopt import matrix, solvers
 import matplotlib.pylab as plt
@@ -8,17 +9,16 @@ import pickle
 import random
 
 class SVM:
-    def __init__(self, X, Y, alpha0):
+    def __init__(self, X, Y):
         self.X = X
         self.Y = Y
-        self.alpha0 = alpha0
         self.kkttol = 5e-4
         self.chunksize = 50
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 10
+        self.C = 20
         self.h = 0.01
         self.debug = True
         self.alphatol = 1e-20
@@ -226,7 +226,7 @@ class SVM:
             oh = matrix(np.dot(z, z.T).astype('float'))
 
             solvers.options['maxiters'] = 1000
-            solvers.options['show_progress'] = True
+            solvers.options['show_progress'] = self.debug
             # solvers.options['abstol'] = 1e-8
             # solvers.options['reltol'] = 1e-8
             # solvers.options['feastol'] = 1e-8
@@ -240,7 +240,6 @@ class SVM:
 
         self.svcoeff = self.alpha[self.svind] * Y[self.svind]
         self.SV = X[self.svind, :]
-        print()
 
     def findSV(self):
         maxalpha = self.alpha.max()
@@ -255,7 +254,6 @@ class SVM:
 
         self.SVnonBound = np.logical_and(self.SV, np.logical_not(self.SVBound))
         self.svind = np.flatnonzero(self.SV)
-        print()
 
     def calc_rbf(self, X1, X2):
         N1, d = X1.shape
@@ -265,6 +263,12 @@ class SVM:
         dist2 += np.tile(np.sum((X2 ** 2).T, 0), (N1, 1))
         dist2 -= 2 * X1.dot(X2.T)
         return np.exp(-dist2/2)
+
+    def return_instance_for_predict(self):
+        # limpando dados para diminuir o tamanho
+        self.X = None
+        self.Y = None
+        return self
 
     def calc_saida(self, X):
         N, d = X.shape
@@ -288,7 +292,8 @@ class SVM:
         Y[Y==0] = 1
         return Y, Y1
 
-def split_data(dataset, id, train_percent):
+
+def split_data(dataset, id, train_percent, validation_percent=0.):
   dataset = dataset[np.where(dataset[:,0]==id)]
   train_registers = int(dataset.shape[0] * train_percent)
   test_registers = dataset.shape[0] - train_registers
@@ -306,6 +311,64 @@ def split_data(dataset, id, train_percent):
 
   return x_train, y_train, x_test, y_test
 
+def split_data_ovo(dataset, id, train_percent, validation_percent=0.):
+  dataset = dataset[np.where(dataset[:,0]==id)]
+  train_registers = int(dataset.shape[0] * train_percent)
+  test_registers = dataset.shape[0] - train_registers
+  if test_registers == 0 or train_registers == 0:
+    print("Id {} com registros insuficientes.".format(id))
+    x_train = dataset[0:0, 1:]
+    x_test = dataset[0:0, 1:]
+    x_val = dataset[0:0, 1:]
+  else:
+    x_train = dataset[0:train_registers, 1:]
+    x_test = dataset[train_registers:, 1:]
+    x_val = dataset[0:0, 1:]
+  return x_train, x_val, x_test
+
+
+def generate_OvO_pairs(list_of_classes):
+    # deixa distinct e ordenado
+    list_of_classes = list(set(list_of_classes))
+    list_ovo_pairs = []
+    count_classes = len(list_of_classes)
+    for i in range(count_classes - 1):
+        ini_rest = i + 1
+        one_item = list_of_classes[i]
+        rest = list_of_classes[ini_rest:]
+        for rest_item in rest:
+            list_ovo_pairs.append([one_item, rest_item])
+
+    return list_ovo_pairs
+
+def generate_dictionary_dataset(path_dataset_hdf5, percent_train=0.6, percent_validation=0.2, total_classes=-1):
+    start_time = datetime.datetime.now()
+    dict_train = {}
+    dict_validation = {}
+    dict_test = {}
+
+    f = h5py.File(path_dataset_hdf5, 'r')
+    hog_array = cp.array(f['descriptor'])  # cupy array
+
+    classes = np.array(cp.unique(hog_array[:, 0]).get())
+    random.seed(2)
+    random.shuffle(classes)
+
+    if total_classes > -1:
+        classes= classes[:total_classes]
+
+
+    for classe in classes:
+        # concatena os conjuntos
+        x_tr, x_val, x_te = split_data_ovo(hog_array, classe, percent_train, percent_validation)
+        dict_train[classe] = np.array(x_tr.get())
+        dict_validation[classe] = np.array(x_val.get())
+        dict_test[classe] = np.array(x_te.get())
+    end_time = datetime.datetime.now()
+    print("Tempo para criar os dicionarios: {}".format(end_time-start_time))
+    return dict_train, dict_validation, dict_test
+
+
 def train_hog(path_hog):
     time_start = datetime.datetime.now()
     f = h5py.File(path_hog, 'r')
@@ -317,7 +380,7 @@ def train_hog(path_hog):
 
     random.seed(2)
     classes = np.unique(hog_array[:, 0])
-    random.shuffle(classes)
+    # random.shuffle(classes)
     classes = classes[0: qtd_classes]
     classes = np.array(classes)
     # inicializa com o id 0
@@ -333,15 +396,12 @@ def train_hog(path_hog):
 
     train_x, train_y, test_x, test_y = x_train_hog, y_train_hog, x_test_hog, y_test_hog
 
-    # normalizando para valores
-    train_x = train_x / 255.
-    test_x = test_x / 255.
 
-    train_y[train_y == 1974] = 1
-    train_y[train_y == 1937] = -1
+    train_y[train_y == 1] = 1
+    train_y[train_y == 2] = -1
 
-    test_y[test_y == 1974] = 1
-    test_y[test_y == 1937] = -1
+    test_y[test_y == 1] = 1
+    test_y[test_y == 2] = -1
 
     print("train_x's shape: " + str(train_x.shape))
     print("test_x's shape: " + str(test_x.shape))
@@ -382,13 +442,15 @@ def train_hog(path_hog):
     recall = TN / (TN + FN)
     acuracia = (TP + TN) / (TP + TN + FP + FN)
 
-    print("Teste - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+
 
     time_end = datetime.datetime.now()
+    print("Tempo total: {}".format(time_end-time_start))
+    print("Teste - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
 
 
 def train_lbp(path_lbp):
-    time_start = datetime.datetime.now()
+
     f = h5py.File(path_lbp, 'r')
 
     hog_array = np.array(f['descriptor'])  # numpy array
@@ -427,9 +489,14 @@ def train_lbp(path_lbp):
     print("train_x's shape: " + str(train_x.shape))
     print("test_x's shape: " + str(test_x.shape))
 
+    time_start = datetime.datetime.now()
+
     svm = SVM(train_x, train_y, 10 ** -2)
+    svm.debug = False
     svm.prep()
     svm.trainSVM()
+
+    time_end = datetime.datetime.now()
 
     Ysvm, Y1svm = svm.calc_saida(train_x)
 
@@ -445,7 +512,7 @@ def train_lbp(path_lbp):
     recall = TN / (TN + FN)
     acuracia = (TP + TN) / (TP + TN + FP + FN)
 
-    print("Treino - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+    print("Treino Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
 
     # Teste
 
@@ -465,10 +532,137 @@ def train_lbp(path_lbp):
 
     print("Teste - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
 
-    time_end = datetime.datetime.now()
 
+    print("Tempo total: {}".format(time_end - time_start))
 
-
-
-train_hog("./data/hog_11_15_20_56")
+# train_hog("./data/hog_11_15_20_56")
 # train_lbp("./data/lbp_grid_total")
+#
+# unique_ids = [x for x in range(2000)]
+# result = generate_OvO_pairs(unique_ids)
+
+def train_ovo_lbp(total_classes=4):
+    time_start = datetime.datetime.now()
+    dict_ovo_weights = {}
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/lbp_grid_total", total_classes=total_classes)
+
+    lista_classes = np.array(list(dict_train.keys()))
+    list_ovo = generate_OvO_pairs(lista_classes)
+
+    for ovo in list_ovo:
+        x_train = np.concatenate([dict_train[ovo[0]],dict_train[ovo[1]]])
+        y_train = np.concatenate([np.full(dict_train[ovo[0]].shape[0], -1),np.full(dict_train[ovo[1]].shape[0], 1)]).reshape(-1,1)
+        x_train = x_train / 255
+        svm = SVM(x_train, y_train)
+        svm.debug = False
+        svm.prep()
+        svm.trainSVM()
+
+        dict_ovo_weights[tuple(ovo)] = svm.return_instance_for_predict()
+
+    time_end = datetime.datetime.now()
+    print("Tempo train_ovo_lbp: {}".format(time_end - time_start))
+    return dict_test, dict_ovo_weights
+
+def train_ovo_hog(total_classes=4):
+    time_start = datetime.datetime.now()
+    dict_ovo_weights = {}
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56", total_classes=total_classes)
+    list_ovo = generate_OvO_pairs(dict_train.keys())
+
+    for ovo in list_ovo:
+        x_train = np.concatenate([dict_train[ovo[0]],dict_train[ovo[1]]])
+        y_train = np.concatenate([np.full(dict_train[ovo[0]].shape[0], -1),np.full(dict_train[ovo[1]].shape[0], 1)]).reshape(-1,1)
+        svm = SVM(x_train, y_train)
+        svm.debug = False
+        svm.prep()
+        svm.trainSVM()
+
+        dict_ovo_weights[tuple(ovo)] = svm.return_instance_for_predict()
+
+    time_end = datetime.datetime.now()
+    print("Tempo train_ovo_hog: {}".format(time_end - time_start))
+    return dict_test, dict_ovo_weights
+
+def evaluate_ovo_weights_hog(dict_test, dict_ovo_weights):
+    time_start = datetime.datetime.now()
+    tests = list(dict_test.keys())
+    dataset_x_test = dict_test[tests[0]]
+    dataset_y_test = np.full(dict_test[tests[0]].shape[0], tests[0]).reshape(-1,1)
+
+    for i in range(1,len(tests)):
+        dataset_x_test = np.concatenate([dataset_x_test, dict_test[tests[i]]])
+        dataset_y_test = np.concatenate([dataset_y_test, np.full(dict_test[tests[i]].shape[0], tests[i]).reshape(-1,1)])
+
+    ovos = dict_ovo_weights.keys()
+    votos = [[x, []] for x in range(dataset_y_test.shape[0])]
+
+    for ovo in ovos:
+        Ysvm, Y1svm = dict_ovo_weights[ovo].calc_saida(dataset_x_test)
+        id = 0
+        for y in Ysvm:
+            if y >= 0:
+                classe = ovo[1]
+            else:
+                classe = ovo[0]
+            votos[id][1].append(classe)
+            id += 1
+
+    y_alcancado = []
+    for voto in votos:
+        pos, count = np.unique(voto[1], return_counts=True)
+        y_alcancado.append([pos[np.argmax(count)]])
+
+    y_alcancado = np.array(y_alcancado)
+    acuracia = (y_alcancado == dataset_y_test).astype('int').mean()
+
+    print("Acuracia hog: {}".format(acuracia))
+
+
+    time_end = datetime.datetime.now()
+    print("Tempo evaluate_ovo_weights_hog: {}".format(time_end - time_start))
+
+def evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights):
+        time_start = datetime.datetime.now()
+        tests = list(dict_test.keys())
+        dataset_x_test = dict_test[tests[0]]
+        dataset_y_test = np.full(dict_test[tests[0]].shape[0], tests[0]).reshape(-1, 1)
+
+        for i in range(1, len(tests)):
+            dataset_x_test = np.concatenate([dataset_x_test, dict_test[tests[i]]])
+            dataset_y_test = np.concatenate(
+                [dataset_y_test, np.full(dict_test[tests[i]].shape[0], tests[i]).reshape(-1, 1)])
+
+        ovos = dict_ovo_weights.keys()
+        votos = [[x, []] for x in range(dataset_y_test.shape[0])]
+        dataset_x_test = dataset_x_test / 255
+        for ovo in ovos:
+            Ysvm, Y1svm = dict_ovo_weights[ovo].calc_saida(dataset_x_test)
+            id = 0
+            for y in Ysvm:
+                if y >= 0:
+                    classe = ovo[1]
+                else:
+                    classe = ovo[0]
+                votos[id][1].append(classe)
+                id += 1
+
+        y_alcancado = []
+        for voto in votos:
+            pos, count = np.unique(voto[1], return_counts=True)
+            y_alcancado.append([pos[np.argmax(count)]])
+
+        y_alcancado = np.array(y_alcancado)
+        acuracia = (y_alcancado == dataset_y_test).astype('int').mean()
+
+        print("Acuracia lbp: {}".format(acuracia))
+
+        time_end = datetime.datetime.now()
+        print("Tempo evaluate_ovo_weights_lbp: {}".format(time_end - time_start))
+
+#
+dict_test, dict_ovo_weights = train_ovo_hog(20)
+evaluate_ovo_weights_hog(dict_test, dict_ovo_weights)
+
+dict_test, dict_ovo_weights = train_ovo_lbp(20)
+evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights)
