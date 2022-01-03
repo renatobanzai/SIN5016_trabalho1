@@ -24,6 +24,8 @@ class SVM:
         self.alphatol = 1e-20
         self.SVThresh = 0.
         self.qpsize = 6
+        self.logs = []
+        self.configs = {}
 
     def prep(self):
         self.N, self.ne = self.X.shape
@@ -548,43 +550,78 @@ def train_ovo_lbp(total_classes=4):
 
     lista_classes = np.array(list(dict_train.keys()))
     list_ovo = generate_OvO_pairs(lista_classes)
+    logs = []
+    logs.append("=============================================================")
+    logs.append("Execução em: {}".format(datetime.datetime.now()))
+    logs.append("Quantidade de SVMs One-vs-One: {}".format(len(list_ovo)) )
+    logs.append("Quantidade de Artistas: {}".format(len(lista_classes)))
+    logs.append("=============================================================")
 
     for ovo in list_ovo:
         x_train = np.concatenate([dict_train[ovo[0]],dict_train[ovo[1]]])
         y_train = np.concatenate([np.full(dict_train[ovo[0]].shape[0], -1),np.full(dict_train[ovo[1]].shape[0], 1)]).reshape(-1,1)
         x_train = x_train / 255
         svm = SVM(x_train, y_train)
+
+        logs.append("Classes OvO: {}".format(ovo))
+        logs.append("Shape do array de treino: {}".format( x_train.shape))
+
         svm.debug = False
         svm.prep()
         svm.trainSVM()
+
 
         dict_ovo_weights[tuple(ovo)] = svm.return_instance_for_predict()
 
     time_end = datetime.datetime.now()
     print("Tempo train_ovo_lbp: {}".format(time_end - time_start))
-    return dict_test, dict_ovo_weights
+    logs.append("Tempo train_ovo_lbp: {}".format(time_end - time_start))
+    pickle.dump(dict_ovo_weights, open("5016_svm_lbp_{}_.dat".format(total_classes), "wb"))
+    return dict_test, dict_ovo_weights, logs
 
 def train_ovo_hog(total_classes=4):
+    logs = []
     time_start = datetime.datetime.now()
     dict_ovo_weights = {}
     dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56", total_classes=total_classes)
     list_ovo = generate_OvO_pairs(dict_train.keys())
 
+    logs.append("=============================================================")
+    logs.append("Execução em: {}".format(datetime.datetime.now()))
+    logs.append("Quantidade de SVMs One-vs-One: {}".format(len(list_ovo)))
+    logs.append("Quantidade de Artistas: {}".format(len(dict_train.keys())))
+    logs.append("=============================================================")
+    loop_start = datetime.datetime.now()
+    iter = 0
     for ovo in list_ovo:
         x_train = np.concatenate([dict_train[ovo[0]],dict_train[ovo[1]]])
         y_train = np.concatenate([np.full(dict_train[ovo[0]].shape[0], -1),np.full(dict_train[ovo[1]].shape[0], 1)]).reshape(-1,1)
         svm = SVM(x_train, y_train)
+
+        logs.append("Classes OvO: {}".format(ovo))
+        logs.append("Shape do array de treino: {}".format(x_train.shape))
+
         svm.debug = False
         svm.prep()
         svm.trainSVM()
 
         dict_ovo_weights[tuple(ovo)] = svm.return_instance_for_predict()
 
+        if iter % 1000 == 0:
+            loop_end = datetime.datetime.now()
+            logs.append("Tempo para treinar 1000 SVMs: {}".format(loop_end-loop_start))
+            print("Tempo para treinar 1000 SVMs: {}".format(loop_end-loop_start))
+            loop_start = datetime.datetime.now()
+
+        iter += 1
+
     time_end = datetime.datetime.now()
     print("Tempo train_ovo_hog: {}".format(time_end - time_start))
-    return dict_test, dict_ovo_weights
+    logs.append("Tempo train_ovo_hog: {}".format(time_end - time_start))
+    pickle.dump(dict_ovo_weights, open("5016_svm_hog_{}_.dat".format(total_classes), "wb"))
+    return dict_test, dict_ovo_weights, logs
 
-def evaluate_ovo_weights_hog(dict_test, dict_ovo_weights):
+def evaluate_ovo_weights_hog(dict_test, dict_ovo_weights, logs):
     time_start = datetime.datetime.now()
     tests = list(dict_test.keys())
     dataset_x_test = dict_test[tests[0]]
@@ -617,52 +654,55 @@ def evaluate_ovo_weights_hog(dict_test, dict_ovo_weights):
     acuracia = (y_alcancado == dataset_y_test).astype('int').mean()
 
     print("Acuracia hog: {}".format(acuracia))
-
-
+    logs.append("Acuracia hog: {}".format(acuracia))
     time_end = datetime.datetime.now()
+    logs.append("Tempo evaluate_ovo_weights_hog: {}".format(time_end - time_start))
     print("Tempo evaluate_ovo_weights_hog: {}".format(time_end - time_start))
+    pickle.dump(logs, open("5016_svm_hog_logs.pkl", "wb"))
 
-def evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights):
-        time_start = datetime.datetime.now()
-        tests = list(dict_test.keys())
-        dataset_x_test = dict_test[tests[0]]
-        dataset_y_test = np.full(dict_test[tests[0]].shape[0], tests[0]).reshape(-1, 1)
+def evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights, logs):
+    time_start = datetime.datetime.now()
+    tests = list(dict_test.keys())
+    dataset_x_test = dict_test[tests[0]]
+    dataset_y_test = np.full(dict_test[tests[0]].shape[0], tests[0]).reshape(-1, 1)
 
-        for i in range(1, len(tests)):
-            dataset_x_test = np.concatenate([dataset_x_test, dict_test[tests[i]]])
-            dataset_y_test = np.concatenate(
-                [dataset_y_test, np.full(dict_test[tests[i]].shape[0], tests[i]).reshape(-1, 1)])
+    for i in range(1, len(tests)):
+        dataset_x_test = np.concatenate([dataset_x_test, dict_test[tests[i]]])
+        dataset_y_test = np.concatenate(
+            [dataset_y_test, np.full(dict_test[tests[i]].shape[0], tests[i]).reshape(-1, 1)])
 
-        ovos = dict_ovo_weights.keys()
-        votos = [[x, []] for x in range(dataset_y_test.shape[0])]
-        dataset_x_test = dataset_x_test / 255
-        for ovo in ovos:
-            Ysvm, Y1svm = dict_ovo_weights[ovo].calc_saida(dataset_x_test)
-            id = 0
-            for y in Ysvm:
-                if y >= 0:
-                    classe = ovo[1]
-                else:
-                    classe = ovo[0]
-                votos[id][1].append(classe)
-                id += 1
+    ovos = dict_ovo_weights.keys()
+    votos = [[x, []] for x in range(dataset_y_test.shape[0])]
+    dataset_x_test = dataset_x_test / 255
+    for ovo in ovos:
+        Ysvm, Y1svm = dict_ovo_weights[ovo].calc_saida(dataset_x_test)
+        id = 0
+        for y in Ysvm:
+            if y >= 0:
+                classe = ovo[1]
+            else:
+                classe = ovo[0]
+            votos[id][1].append(classe)
+            id += 1
 
-        y_alcancado = []
-        for voto in votos:
-            pos, count = np.unique(voto[1], return_counts=True)
-            y_alcancado.append([pos[np.argmax(count)]])
+    y_alcancado = []
+    for voto in votos:
+        pos, count = np.unique(voto[1], return_counts=True)
+        y_alcancado.append([pos[np.argmax(count)]])
 
-        y_alcancado = np.array(y_alcancado)
-        acuracia = (y_alcancado == dataset_y_test).astype('int').mean()
+    y_alcancado = np.array(y_alcancado)
+    acuracia = (y_alcancado == dataset_y_test).astype('int').mean()
 
-        print("Acuracia lbp: {}".format(acuracia))
-
-        time_end = datetime.datetime.now()
-        print("Tempo evaluate_ovo_weights_lbp: {}".format(time_end - time_start))
+    print("Acuracia lbp: {}".format(acuracia))
+    logs.append("Acuracia lbp: {}".format(acuracia))
+    time_end = datetime.datetime.now()
+    print("Tempo evaluate_ovo_weights_lbp: {}".format(time_end - time_start))
+    logs.append("Tempo evaluate_ovo_weights_lbp: {}".format(time_end - time_start))
+    pickle.dump(logs, open("5016_svm_lbp_logs.pkl", "wb"))
 
 #
-dict_test, dict_ovo_weights = train_ovo_hog(20)
-evaluate_ovo_weights_hog(dict_test, dict_ovo_weights)
+dict_test, dict_ovo_weights, logs = train_ovo_hog(2000)
+evaluate_ovo_weights_hog(dict_test, dict_ovo_weights, logs)
 
-dict_test, dict_ovo_weights = train_ovo_lbp(20)
-evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights)
+dict_test, dict_ovo_weights, logs = train_ovo_lbp(2000)
+evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights, logs)
