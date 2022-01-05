@@ -16,17 +16,17 @@ class SVM:
         self.X = X
         self.Y = Y
         self.kkttol = 5e-4
-        self.chunksize = 200
+        self.chunksize = 2000
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 1
+        self.C = 20
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-3
+        self.alphatol = 1e-10
         self.SVThresh = 0.
-        self.qpsize = 6
+        self.qpsize = 2000
         self.logs = []
         self.configs = {}
 
@@ -52,7 +52,7 @@ class SVM:
         Y = self.Y
 
         saida_svm = np.zeros((self.N,1))
-        alphaOld = self.alpha
+        alphaOld = np.copy(self.alpha)
         if self.Y[self.class1].shape[0] == self.N:
             self.bias = 1
             return
@@ -119,7 +119,7 @@ class SVM:
             set2 = np.logical_and(np.logical_or(self.SV, self.class1), np.logical_or(np.logical_not(self.SVBound), self.class0))
 
             if self.randomWS:
-                np.random.rand(self.N, 1)
+                searchDir = np.random.rand(self.N, 1)
                 set1 = self.class1
                 set2 = self.class0
                 self.randomWS = False
@@ -127,7 +127,7 @@ class SVM:
 
             # Passo 6: Seleciona o working set
             #          (QPsize/2 exemplos de set1, QPsize/2 de set2
-            worksetOld = workset
+            worksetOld = np.copy(workset)
             workset = np.full((self.N, 1), False)
 
             if np.flatnonzero(np.logical_or(set1, set2)).size <= self.qpsize:
@@ -159,7 +159,7 @@ class SVM:
 
             if np.all(workset==worksetOld):
                 sameWS +=1
-                if sameWS == 3:
+                if sameWS == 5:
                     break
 
             worksize = worksetind.size
@@ -230,14 +230,14 @@ class SVM:
 
             solvers.options['maxiters'] = 1000
             solvers.options['show_progress'] = self.debug
-            # solvers.options['abstol'] = 1e-8
-            # solvers.options['reltol'] = 1e-8
-            # solvers.options['feastol'] = 1e-8
-            # solvers.options['refinement'] = 1
+            solvers.options['abstol'] = 1e-8
+            solvers.options['reltol'] = 1e-8
+            solvers.options['feastol'] = 1e-8
+            solvers.options['refinement'] = 1
             sol = solvers.qp(oh, _f, G, h, A=_A, b=_eqconstr, initvals=_start_val)
             workAlpha = np.array(sol['x'])
 
-            alphaOld = self.alpha*1.
+            alphaOld = np.copy(self.alpha)
             self.alpha[workset] = workAlpha.squeeze()
             iteracao += 1
 
@@ -828,6 +828,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
     logs = []
     moc_svms = []
     for svm_dataset in svm_datasets:
+        ini_treino = datetime.datetime.now()
         x_train, y_train, y_classes_reais = get_x_y(dict_train, svm_dataset[0], svm_dataset[1])
         svm_ = SVM(x_train, y_train)
 
@@ -856,8 +857,8 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
         precisao = TP / (TP + FP)
         recall = TN / (TN + FN)
         acuracia = (TP + TN) / (TP + TN + FP + FN)
-
-        print("Treino Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+        fim_treino = datetime.datetime.now()
+        print("Treino Precisao: {} Recall:{} Acuracia:{} tempo:{}".format(precisao, recall, acuracia, fim_treino-ini_treino))
         moc_svms.append(svm_.return_instance_for_predict())
 
     resultados = []
@@ -885,7 +886,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
         if x in dict_classes.keys():
             res_moc_classes.append(dict_classes[x])
         else:
-            res_moc_classes.append(min_hamming_distance(x, dict_classes.keys()))
+            res_moc_classes.append(dict_classes[min_hamming_distance(x, dict_classes.keys())])
 
     res_moc_classes = np.array(res_moc_classes).reshape(-1,1)
 
@@ -893,11 +894,12 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
     corretos = 0
     idx = 0
     for x in range(res_moc_classes.shape[0]):
-        if x == y_classes_reais[0]:
+        if res_moc_classes[x][0] == y_classes_reais[idx][0]:
             corretos += 1
         idx += 1
 
     print("treino corretos", corretos)
+    print("treino acuracia", corretos/y_classes_reais.size)
 
     pickle.dump(moc_svms, open("5016_svm_hog_moc.dat".format(total_classes), "wb"))
 
@@ -927,24 +929,26 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
         if x in dict_classes.keys():
             res_moc_classes.append(dict_classes[x])
         else:
-            res_moc_classes.append(min_hamming_distance(x, dict_classes.keys()))
+            res_moc_classes.append(dict_classes[min_hamming_distance(x, dict_classes.keys())])
 
     res_moc_classes = np.array(res_moc_classes).reshape(-1, 1)
 
     corretos = 0
     idx = 0
+    ## melhorar comparação
     for x in range(res_moc_classes.shape[0]):
-        if x == y_train[0]:
+        if res_moc_classes[idx][0] == y_test[idx]:
             corretos += 1
         idx += 1
 
     print("teste corretos", corretos)
+    print("teste acuracia", corretos/y_test.size)
 
     return moc_svms
 
 
 
-dict_moc, svm_datasets = processa_moc(40, ecoc=2)
-train_svm_ocs(dict_moc, svm_datasets, 40)
+dict_moc, svm_datasets = processa_moc(2500, ecoc=1)
+train_svm_ocs(dict_moc, svm_datasets, 2500)
 
 
