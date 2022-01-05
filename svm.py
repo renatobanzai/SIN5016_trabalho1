@@ -16,17 +16,17 @@ class SVM:
         self.X = X
         self.Y = Y
         self.kkttol = 5e-4
-        self.chunksize = 2000
+        self.chunksize = 4000
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 20
+        self.C = 2000
         self.h = 0.01
         self.debug = True
         self.alphatol = 1e-10
         self.SVThresh = 0.
-        self.qpsize = 2000
+        self.qpsize = 1300
         self.logs = []
         self.configs = {}
 
@@ -159,7 +159,7 @@ class SVM:
 
             if np.all(workset==worksetOld):
                 sameWS +=1
-                if sameWS == 5:
+                if sameWS == 3:
                     break
 
             worksize = worksetind.size
@@ -732,9 +732,9 @@ def train_hog_full(total_classes=4):
 
 # train_hog_full(10)
 dict_moc = {}
-def processa_moc(total_classes=5, ecoc=1):
+def processa_moc(total_classes=5, ecoc=1, path_hdf="", lbp=False):
     # quebra o dataset em treino ,teste e validacao
-    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56",
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset(path_hdf,
                                                                          total_classes=total_classes)
     # lista de classes unicas
     unique_classes = list(dict_train.keys())
@@ -784,7 +784,7 @@ def processa_moc(total_classes=5, ecoc=1):
     print("fim")
     return dict_moc, svm_datasets
 
-def get_x_y(dict_data, lista_classe_0, lista_classe_1):
+def get_x_y(dict_data, lista_classe_0, lista_classe_1, lbp=False):
     x_train_0 = dict_data[lista_classe_0[0]]
     y_classes_reais_0 = np.full(x_train_0.shape[0], lista_classe_0[0])
     for i in range(1, len(lista_classe_0)):
@@ -821,8 +821,8 @@ def min_hamming_distance(val, list_vals):
 
 
 
-def train_svm_ocs(dict_moc, svm_datasets, total_classes):
-    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56",
+def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset(path_hdf,
                                                                          total_classes=total_classes)
 
     logs = []
@@ -830,6 +830,8 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
     for svm_dataset in svm_datasets:
         ini_treino = datetime.datetime.now()
         x_train, y_train, y_classes_reais = get_x_y(dict_train, svm_dataset[0], svm_dataset[1])
+        if lbp:
+            x_train = x_train / 255
         svm_ = SVM(x_train, y_train)
 
 
@@ -854,11 +856,11 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
         TN = np.sum(Ysvm[neg] == -1)
         FP = np.sum(Ysvm[neg] == 1)
 
-        precisao = TP / (TP + FP)
-        recall = TN / (TN + FN)
+        # precisao = TP / (TP + FP)
+        # recall = TN / (TN + FN)
         acuracia = (TP + TN) / (TP + TN + FP + FN)
         fim_treino = datetime.datetime.now()
-        print("Treino Precisao: {} Recall:{} Acuracia:{} tempo:{}".format(precisao, recall, acuracia, fim_treino-ini_treino))
+        print("Treino Acuracia:{} tempo:{}".format(acuracia, fim_treino-ini_treino))
         moc_svms.append(svm_.return_instance_for_predict())
 
     resultados = []
@@ -898,8 +900,8 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
             corretos += 1
         idx += 1
 
-    print("treino corretos", corretos)
-    print("treino acuracia", corretos/y_classes_reais.size)
+    print("treino corretos", (res_moc_classes==y_classes_reais).astype(int).sum())
+    print("treino acuracia", (res_moc_classes==y_classes_reais).astype(int).mean())
 
     pickle.dump(moc_svms, open("5016_svm_hog_moc.dat".format(total_classes), "wb"))
 
@@ -912,6 +914,8 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
 
     resultados = []
     for svm_treinado in moc_svms:
+        if lbp:
+            x_test = x_test / 255
         Ysvm, Y1svm = svm_treinado.calc_saida(x_test)
         Ysvm[Ysvm < 0] = 0
         Ysvm[Ysvm > 0] = 1
@@ -948,7 +952,10 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes):
 
 
 
-dict_moc, svm_datasets = processa_moc(2500, ecoc=1)
-train_svm_ocs(dict_moc, svm_datasets, 2500)
+dict_moc, svm_datasets = processa_moc(64, 1, "./data/hog_11_15_20_56")
+train_svm_ocs(dict_moc, svm_datasets, 64, "./data/hog_11_15_20_56")
 
+
+dict_moc, svm_datasets = processa_moc(64, 1, "./data/lbp_grid_total", lbp=True)
+train_svm_ocs(dict_moc, svm_datasets, 64, "./data/lbp_grid_total", lbp=True)
 
