@@ -16,17 +16,17 @@ class SVM:
         self.X = X
         self.Y = Y
         self.kkttol = 5e-4
-        self.chunksize = 4000
+        self.chunksize = 5000
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 2000
+        self.C = 100
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-10
+        self.alphatol = 1e-4
         self.SVThresh = 0.
-        self.qpsize = 1300
+        self.qpsize = 16
         self.logs = []
         self.configs = {}
 
@@ -73,8 +73,8 @@ class SVM:
 
             # Passo 2: Encontra a saída para o SVM
             if iteracao == 0:
-                changedSV = self.svind
-                changedAlpha = self.alpha[changedSV]
+                changedSV = self.svind # todo: np.copy(self.svind)
+                changedAlpha = self.alpha[changedSV] # todo: np.copy(self.alpha[changedSV])
                 saida_svm = np.zeros((self.N, 1))
             else:
                 changedSV = np.flatnonzero(alphaOld != self.alpha)
@@ -92,6 +92,7 @@ class SVM:
                     fim_ind2 = min(len(changedSV), (ch2+1)*self.chunksize)
                     K12 = self.calc_rbf(X[ini_ind1:fim_ind1, :], X[changedSV][ini_ind2:fim_ind2])
                     coeff = changedAlpha[ini_ind2:fim_ind2]*Y[changedSV[ini_ind2:fim_ind2]]
+                    saida_svm[ini_ind1:fim_ind1] = saida_svm[ini_ind1:fim_ind1] + np.dot(K12, coeff)
 
             # Passo 3: Calcule o bias da função de decisão
             workSV = np.flatnonzero(np.logical_and(self.SVnonBound, workset))
@@ -102,10 +103,16 @@ class SVM:
             # Passo 4: Calcula as condicoes de KKT
             KKT = (saida_svm+self.bias)*self.Y-1
             KKTViolations1 = np.logical_and(self.SVnonBound, (abs(KKT)>self.kkttol))
-            KKTViolations2 = np.logical_and(self.SVBound, (abs(KKT) > self.kkttol))
-            KKTViolations3 = np.logical_and(np.logical_not(self.SV), (abs(KKT) > self.kkttol))
+            KKTViolations2 = np.logical_and(self.SVBound, KKT > self.kkttol)
+            KKTViolations3 = np.logical_and(np.logical_not(self.SV), (KKT < (self.kkttol*-1)))
             KKTViolations = np.logical_or(KKTViolations1, KKTViolations2)
             KKTViolations = np.logical_or(KKTViolations, KKTViolations3)
+
+            # (uint8((SVnonbound & (abs(KKT) > svm.kkttol)) | ...
+            # (SVbound & (KKT > svm.kkttol)) | ...
+            #        (~SV & (KKT < -svm.kkttol))))
+
+
 
             count_kkt = len(np.flatnonzero(KKTViolations))
 
@@ -119,6 +126,7 @@ class SVM:
             set2 = np.logical_and(np.logical_or(self.SV, self.class1), np.logical_or(np.logical_not(self.SVBound), self.class0))
 
             if self.randomWS:
+                np.random.seed(0)
                 searchDir = np.random.rand(self.N, 1)
                 set1 = self.class1
                 set2 = self.class0
@@ -146,7 +154,7 @@ class SVM:
                 workset[set1[ind[:from1]]] = True
             else:
                 set1 = np.flatnonzero(set1)
-                ind = -searchDir[set1].argsort(0)
+                ind = (-searchDir[set1]).argsort(0)
                 from1 = min(set1.size, math.floor(self.qpsize /2))
                 workset[set1[ind[:from1]]] = True
 
@@ -161,6 +169,8 @@ class SVM:
                 sameWS +=1
                 if sameWS == 3:
                     break
+            else:
+                sameWS = 0
 
             worksize = worksetind.size
             nonworkset = np.logical_not(workset)
@@ -181,11 +191,10 @@ class SVM:
 
             # Passo 8: Soluciona a programação quadrática
             H = self.calc_rbf(self.X[worksetind, :], self.X[worksetind, :])
-
             H += np.diag(np.ones((worksize, 1))*np.spacing(1)**(2/3))
-
             H = H * (self.Y[workset].dot(Y[workset].T))
-            A = Y[workset].reshape(1,-1).astype('float')
+
+            A = Y[workset].T.astype('float').reshape(1,-1)
 
             if nonworkSV.size > 0:
                 eqconstr = -self.alpha[nonworkSV].T.dot(Y[nonworkSV])
@@ -213,6 +222,7 @@ class SVM:
             tmp2 = np.ones(worksize) * 10.
             h = matrix(np.hstack((tmp1, tmp2)))
 
+            _H = matrix(H.astype(float))
             _c3 = matrix(np.vstack((np.eye(worksize)*-1,np.eye(worksize)))) #G
             _c4 = matrix(np.hstack((np.zeros(worksize), np.ones(worksize) * 10))) #h
             _A = matrix(A) #A
@@ -223,18 +233,24 @@ class SVM:
 
             #todo: melhorar isso
             # ref: https://python.plainenglish.io/introducing-python-package-cvxopt-implementing-svm-from-scratch-dc40dda1da1f
-            teste = Y[workset]
-            teste = teste.reshape(-1, 1)
-            z = teste * X[worksetind, :]
-            oh = matrix(np.dot(z, z.T).astype('float'))
+            # teste = Y[workset]
+            # teste = teste.reshape(-1, 1)
+            # z = teste * X[worksetind, :]
+            # hh = np.dot(z, z.T).astype('float')
+            # oh = matrix(hh)
+
+            H = self.calc_rbf(X[worksetind], X[worksetind])
+            eps_3 = np.spacing(1) ** (2 / 3)
+            H = H + np.diag(np.full((worksize, worksize), eps_3).diagonal())
+            H = H * np.dot(Y[workset].reshape(-1,1), (Y[workset].T.reshape(1,-1)))
 
             solvers.options['maxiters'] = 1000
             solvers.options['show_progress'] = self.debug
-            solvers.options['abstol'] = 1e-8
-            solvers.options['reltol'] = 1e-8
-            solvers.options['feastol'] = 1e-8
-            solvers.options['refinement'] = 1
-            sol = solvers.qp(oh, _f, G, h, A=_A, b=_eqconstr, initvals=_start_val)
+            # solvers.options['abstol'] = 1e-8
+            # solvers.options['reltol'] = 1e-8
+            # solvers.options['feastol'] = 1e-8
+            # solvers.options['refinement'] = 1
+            sol = solvers.qp(_H, _f, G, h, A=_A, b=_eqconstr, initvals=_start_val)
             workAlpha = np.array(sol['x'])
 
             alphaOld = np.copy(self.alpha)
@@ -297,6 +313,7 @@ class SVM:
         return Y, Y1
 
 
+
 def split_data(dataset, id, train_percent, validation_percent=0.):
   dataset = dataset[np.where(dataset[:,0]==id)]
   train_registers = int(dataset.shape[0] * train_percent)
@@ -345,7 +362,7 @@ def generate_OvO_pairs(list_of_classes):
 
     return list_ovo_pairs
 
-def generate_dictionary_dataset(path_dataset_hdf5, percent_train=0.6, percent_validation=0.2, total_classes=-1):
+def generate_dictionary_dataset(path_dataset_hdf5, percent_train=0.6, percent_validation=0.2, total_classes=-1, lbp=False):
     start_time = datetime.datetime.now()
     dict_train = {}
     dict_validation = {}
@@ -365,9 +382,17 @@ def generate_dictionary_dataset(path_dataset_hdf5, percent_train=0.6, percent_va
     for classe in classes:
         # concatena os conjuntos
         x_tr, x_val, x_te = split_data_ovo(hog_array, classe, percent_train, percent_validation)
-        dict_train[classe] = np.array(x_tr.get())
-        dict_validation[classe] = np.array(x_val.get())
-        dict_test[classe] = np.array(x_te.get())
+
+        if lbp:
+            dict_train[classe] = np.array(x_tr.get()) / 255
+            dict_test[classe] = np.array(x_te.get()) / 255
+            dict_validation[classe] = np.array(x_val.get()) / 255
+        else:
+            dict_test[classe] = np.array(x_te.get())
+            dict_train[classe] = np.array(x_tr.get())
+            dict_validation[classe] = np.array(x_val.get())
+
+
     end_time = datetime.datetime.now()
     print("Tempo para criar os dicionarios: {}".format(end_time-start_time))
     return dict_train, dict_validation, dict_test
@@ -735,7 +760,7 @@ dict_moc = {}
 def processa_moc(total_classes=5, ecoc=1, path_hdf="", lbp=False):
     # quebra o dataset em treino ,teste e validacao
     dict_train, dict_validation, dict_test = generate_dictionary_dataset(path_hdf,
-                                                                         total_classes=total_classes)
+                                                                         total_classes=total_classes, lbp=lbp)
     # lista de classes unicas
     unique_classes = list(dict_train.keys())
 
@@ -789,13 +814,13 @@ def get_x_y(dict_data, lista_classe_0, lista_classe_1, lbp=False):
     y_classes_reais_0 = np.full(x_train_0.shape[0], lista_classe_0[0])
     for i in range(1, len(lista_classe_0)):
         x_train_0 = np.concatenate([x_train_0, dict_data[lista_classe_0[i]]])
-        y_classes_reais_0 = np.concatenate([y_classes_reais_0, np.full(dict_data[lista_classe_0[i]].shape[0], lista_classe_0[0])])
+        y_classes_reais_0 = np.concatenate([y_classes_reais_0, np.full(dict_data[lista_classe_0[i]].shape[0], lista_classe_0[i])])
 
     x_train_1  = dict_data[lista_classe_1[0]]
     y_classes_reais_1 = np.full(x_train_1.shape[0], lista_classe_1[0])
     for i in range(1, len(lista_classe_1)):
         x_train_1 = np.concatenate([x_train_1, dict_data[lista_classe_1[i]]])
-        y_classes_reais_1 = np.concatenate([y_classes_reais_1, np.full(dict_data[lista_classe_1[i]].shape[0], lista_classe_1[0])])
+        y_classes_reais_1 = np.concatenate([y_classes_reais_1, np.full(dict_data[lista_classe_1[i]].shape[0], lista_classe_1[i])])
 
     x_train = np.concatenate([x_train_0, x_train_1])
     y_train_0 = np.full(x_train_0.shape[0], -1)
@@ -813,25 +838,27 @@ def hamming_distance(bit_1, bit_2):
         hamming += abs(int(bit_2[x]) - int(bit_1[x]))
     return hamming
 
-def min_hamming_distance(val, list_vals):
-    set_hammings = set()
+def min_hamming_distance(val, list_vals, max_hamming=-1):
+    if max_hamming < 0:
+        min_hamming = len(val) + 1
     for j in list_vals:
-        set_hammings.add((hamming_distance(val, j), j))
-    return set_hammings.pop()[1]
+        hd = hamming_distance(val, j)
+        if hd < min_hamming:
+            min_hamming = hd
+            min_val = j
+    return j
 
 
 
 def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
     dict_train, dict_validation, dict_test = generate_dictionary_dataset(path_hdf,
-                                                                         total_classes=total_classes)
+                                                                         total_classes=total_classes, lbp=lbp)
 
     logs = []
     moc_svms = []
     for svm_dataset in svm_datasets:
         ini_treino = datetime.datetime.now()
         x_train, y_train, y_classes_reais = get_x_y(dict_train, svm_dataset[0], svm_dataset[1])
-        if lbp:
-            x_train = x_train / 255
         svm_ = SVM(x_train, y_train)
 
 
@@ -839,7 +866,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
         # teste.fit(x_train, y_train)
         # teste_y = teste.predict(x_train)
         # acc =accuracy_score(y_train, teste_y)
-
+        print("Shape do array de treino: {}".format(x_train.shape))
         logs.append("Shape do array de treino: {}".format(x_train.shape))
 
         svm_.debug = False
@@ -903,7 +930,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
     print("treino corretos", (res_moc_classes==y_classes_reais).astype(int).sum())
     print("treino acuracia", (res_moc_classes==y_classes_reais).astype(int).mean())
 
-    pickle.dump(moc_svms, open("5016_svm_hog_moc.dat".format(total_classes), "wb"))
+    pickle.dump(moc_svms, open("5016_svm_hog_moc_2500.dat".format(total_classes), "wb"))
 
     unique_ids = list(dict_test.keys())
     x_test = dict_test[unique_ids[0]]
@@ -913,9 +940,8 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
         y_test = np.concatenate([y_test, np.full(dict_test[unique_ids[x]].shape[0], unique_ids[x])])
 
     resultados = []
+
     for svm_treinado in moc_svms:
-        if lbp:
-            x_test = x_test / 255
         Ysvm, Y1svm = svm_treinado.calc_saida(x_test)
         Ysvm[Ysvm < 0] = 0
         Ysvm[Ysvm > 0] = 1
@@ -952,10 +978,10 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
 
 
 
-dict_moc, svm_datasets = processa_moc(64, 1, "./data/hog_11_15_20_56")
-train_svm_ocs(dict_moc, svm_datasets, 64, "./data/hog_11_15_20_56")
+dict_moc, svm_datasets = processa_moc(2500, 1, "./data/hog_11_15_20_56")
+train_svm_ocs(dict_moc, svm_datasets, 2500, "./data/hog_11_15_20_56")
 
-
-dict_moc, svm_datasets = processa_moc(64, 1, "./data/lbp_grid_total", lbp=True)
-train_svm_ocs(dict_moc, svm_datasets, 64, "./data/lbp_grid_total", lbp=True)
+#
+# dict_moc, svm_datasets = processa_moc(32, 1, "./data/lbp_grid_total", lbp=True)
+# train_svm_ocs(dict_moc, svm_datasets, 32, "./data/lbp_grid_total", lbp=True)
 
