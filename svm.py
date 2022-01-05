@@ -7,21 +7,24 @@ import h5py
 import datetime
 import pickle
 import random
+import sklearn
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
 
 class SVM:
     def __init__(self, X, Y):
         self.X = X
         self.Y = Y
         self.kkttol = 5e-4
-        self.chunksize = 50
+        self.chunksize = 200
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 20
+        self.C = 1
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-20
+        self.alphatol = 1e-3
         self.SVThresh = 0.
         self.qpsize = 6
         self.logs = []
@@ -29,11 +32,9 @@ class SVM:
 
     def prep(self):
         self.N, self.ne = self.X.shape
-        self.class1 = self.Y >= 0
-        self.class0 = self.Y < 0
+        self.class0 = self.Y == -1
+        self.class1 = self.Y == 1
 
-        self.Y[self.class1] = 1;
-        self.Y[self.class0] = -1;
         self.Y = self.Y.reshape(self.N, 1)
         self.qpsize = min(self.N, self.qpsize)
 
@@ -270,6 +271,7 @@ class SVM:
         # limpando dados para diminuir o tamanho
         self.X = None
         self.Y = None
+        self.SV = self.SV.astype(np.float16)
         return self
 
     def calc_saida(self, X):
@@ -701,8 +703,248 @@ def evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights, logs):
     pickle.dump(logs, open("5016_svm_lbp_logs.pkl", "wb"))
 
 #
-dict_test, dict_ovo_weights, logs = train_ovo_hog(2000)
-evaluate_ovo_weights_hog(dict_test, dict_ovo_weights, logs)
+# dict_test, dict_ovo_weights, logs = train_ovo_hog(100)
+# evaluate_ovo_weights_hog(dict_test, dict_ovo_weights, logs)
+#
+# dict_test, dict_ovo_weights, logs = train_ovo_lbp(100)
+# evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights, logs)
 
-dict_test, dict_ovo_weights, logs = train_ovo_lbp(2000)
-evaluate_ovo_weights_lbp(dict_test, dict_ovo_weights, logs)
+def train_hog_full(total_classes=4):
+    logs = []
+    time_start = datetime.datetime.now()
+    dict_ovo_weights = {}
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56", total_classes=total_classes)
+    for x in dict_train.keys():
+        print(x)
+
+    for ovo in list_ovo:
+        x_train = np.concatenate([dict_train[ovo[0]],dict_train[ovo[1]]])
+        y_train = np.concatenate([np.full(dict_train[ovo[0]].shape[0], -1),np.full(dict_train[ovo[1]].shape[0], 1)]).reshape(-1,1)
+        svm = SVM(x_train, y_train)
+
+        logs.append("Classes OvO: {}".format(ovo))
+        logs.append("Shape do array de treino: {}".format(x_train.shape))
+
+        svm.debug = False
+        svm.prep()
+        svm.trainSVM()
+
+
+# train_hog_full(10)
+dict_moc = {}
+def processa_moc(total_classes=5, ecoc=1):
+    # quebra o dataset em treino ,teste e validacao
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56",
+                                                                         total_classes=total_classes)
+    # lista de classes unicas
+    unique_classes = list(dict_train.keys())
+
+    # gera uma matriz de binários para atribuir às classes
+    moc_qty = math.ceil(math.log2(len(unique_classes)) * ecoc)
+
+    binary_format = "{0:0" + str(moc_qty) + "b}"
+    matriz_binarios = []
+    # lista_randomica
+    max_random_val = 2 ** moc_qty
+
+    if ecoc > 1:
+        randomlist = []
+        for i in range(len(unique_classes)):
+            n = random.randint(0, max_random_val)
+            randomlist.append(n)
+    else:
+        randomlist = [x for x in range(max_random_val)]
+
+
+
+    for i in randomlist:
+        bin_rep = binary_format.format(i)
+        matriz_binarios.append(bin_rep)
+
+    # embaralha a matriz, para evitar desbalanceamento em caso de
+    # conjuntos com (2^x)+ 1
+    if ecoc==1:
+        random.shuffle(matriz_binarios)
+
+    dict_moc = {}
+    for i in range(len(unique_classes)):
+        dict_moc[unique_classes[i]] = matriz_binarios[i]
+
+    svm_datasets = []
+    for i in range(moc_qty):
+        classes_dataset_0 = []
+        classes_dataset_1 = []
+        for classe in dict_moc.keys():
+            if dict_moc[classe][i] == "1":
+                classes_dataset_1.append(classe)
+            else:
+                classes_dataset_0.append(classe)
+        svm_datasets.append((classes_dataset_0, classes_dataset_1))
+
+    print("fim")
+    return dict_moc, svm_datasets
+
+def get_x_y(dict_data, lista_classe_0, lista_classe_1):
+    x_train_0 = dict_data[lista_classe_0[0]]
+    y_classes_reais_0 = np.full(x_train_0.shape[0], lista_classe_0[0])
+    for i in range(1, len(lista_classe_0)):
+        x_train_0 = np.concatenate([x_train_0, dict_data[lista_classe_0[i]]])
+        y_classes_reais_0 = np.concatenate([y_classes_reais_0, np.full(dict_data[lista_classe_0[i]].shape[0], lista_classe_0[0])])
+
+    x_train_1  = dict_data[lista_classe_1[0]]
+    y_classes_reais_1 = np.full(x_train_1.shape[0], lista_classe_1[0])
+    for i in range(1, len(lista_classe_1)):
+        x_train_1 = np.concatenate([x_train_1, dict_data[lista_classe_1[i]]])
+        y_classes_reais_1 = np.concatenate([y_classes_reais_1, np.full(dict_data[lista_classe_1[i]].shape[0], lista_classe_1[0])])
+
+    x_train = np.concatenate([x_train_0, x_train_1])
+    y_train_0 = np.full(x_train_0.shape[0], -1)
+    y_train_1 = np.full(x_train_1.shape[0], 1)
+    y_train = np.concatenate([y_train_0, y_train_1])
+    y_classes_reais = np.concatenate([y_classes_reais_0, y_classes_reais_1])
+    y_train =  y_train.reshape(-1,1)
+    y_classes_reais = y_classes_reais.reshape(-1,1)
+    return x_train, y_train, y_classes_reais
+
+def hamming_distance(bit_1, bit_2):
+    hamming = 0
+    size = len(bit_1)
+    for x in range(size):
+        hamming += abs(int(bit_2[x]) - int(bit_1[x]))
+    return hamming
+
+def min_hamming_distance(val, list_vals):
+    set_hammings = set()
+    for j in list_vals:
+        set_hammings.add((hamming_distance(val, j), j))
+    return set_hammings.pop()[1]
+
+
+
+def train_svm_ocs(dict_moc, svm_datasets, total_classes):
+    dict_train, dict_validation, dict_test = generate_dictionary_dataset("./data/hog_11_15_20_56",
+                                                                         total_classes=total_classes)
+
+    logs = []
+    moc_svms = []
+    for svm_dataset in svm_datasets:
+        x_train, y_train, y_classes_reais = get_x_y(dict_train, svm_dataset[0], svm_dataset[1])
+        svm_ = SVM(x_train, y_train)
+
+
+        # teste = SVC()
+        # teste.fit(x_train, y_train)
+        # teste_y = teste.predict(x_train)
+        # acc =accuracy_score(y_train, teste_y)
+
+        logs.append("Shape do array de treino: {}".format(x_train.shape))
+
+        svm_.debug = False
+        svm_.prep()
+        svm_.trainSVM()
+
+        Ysvm, Y1svm = svm_.calc_saida(x_train)
+
+        pos = np.flatnonzero(y_train == 1)
+        neg = np.flatnonzero(y_train == -1)
+
+        TP = np.sum(Ysvm[pos] == 1)
+        FN = np.sum(Ysvm[pos] == -1)
+        TN = np.sum(Ysvm[neg] == -1)
+        FP = np.sum(Ysvm[neg] == 1)
+
+        precisao = TP / (TP + FP)
+        recall = TN / (TN + FN)
+        acuracia = (TP + TN) / (TP + TN + FP + FN)
+
+        print("Treino Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
+        moc_svms.append(svm_.return_instance_for_predict())
+
+    resultados = []
+    for svm_treinado in moc_svms:
+        Ysvm, Y1svm = svm_treinado.calc_saida(x_train)
+        Ysvm[Ysvm < 0] = '0'
+        Ysvm[Ysvm > 0] = '1'
+        resultados.append(Ysvm.astype(int).astype(str))
+
+
+    # cria um dicionário inverso para o
+    dict_classes = {}
+    for classe in dict_moc.keys():
+        dict_classes[dict_moc[classe]] = classe
+
+
+    res_moc = []
+    for res in range(len(resultados[0])):
+        lista_res = "".join([res_y[res][0] for res_y in resultados])
+        res_moc.append(lista_res)
+
+    res_moc_classes = []
+
+    for x in res_moc:
+        if x in dict_classes.keys():
+            res_moc_classes.append(dict_classes[x])
+        else:
+            res_moc_classes.append(min_hamming_distance(x, dict_classes.keys()))
+
+    res_moc_classes = np.array(res_moc_classes).reshape(-1,1)
+
+
+    corretos = 0
+    idx = 0
+    for x in range(res_moc_classes.shape[0]):
+        if x == y_classes_reais[0]:
+            corretos += 1
+        idx += 1
+
+    print("treino corretos", corretos)
+
+    pickle.dump(moc_svms, open("5016_svm_hog_moc.dat".format(total_classes), "wb"))
+
+    unique_ids = list(dict_test.keys())
+    x_test = dict_test[unique_ids[0]]
+    y_test = np.full(x_test.shape[0], unique_ids[0])
+    for x in range(1, len(unique_ids)):
+        x_test = np.concatenate([x_test, dict_test[unique_ids[x]]])
+        y_test = np.concatenate([y_test, np.full(dict_test[unique_ids[x]].shape[0], unique_ids[x])])
+
+    resultados = []
+    for svm_treinado in moc_svms:
+        Ysvm, Y1svm = svm_treinado.calc_saida(x_test)
+        Ysvm[Ysvm < 0] = 0
+        Ysvm[Ysvm > 0] = 1
+        resultados.append(Ysvm.astype(int).astype(str))
+
+    res_moc = []
+    for res in range(len(resultados[0])):
+        lista_res = [res_y[res][0] for res_y in resultados]
+        lista_res = [str(x) for x in lista_res]
+        res_moc.append("".join(lista_res))
+
+    res_moc_classes = []
+
+    for x in res_moc:
+        if x in dict_classes.keys():
+            res_moc_classes.append(dict_classes[x])
+        else:
+            res_moc_classes.append(min_hamming_distance(x, dict_classes.keys()))
+
+    res_moc_classes = np.array(res_moc_classes).reshape(-1, 1)
+
+    corretos = 0
+    idx = 0
+    for x in range(res_moc_classes.shape[0]):
+        if x == y_train[0]:
+            corretos += 1
+        idx += 1
+
+    print("teste corretos", corretos)
+
+    return moc_svms
+
+
+
+dict_moc, svm_datasets = processa_moc(40, ecoc=2)
+train_svm_ocs(dict_moc, svm_datasets, 40)
+
+
