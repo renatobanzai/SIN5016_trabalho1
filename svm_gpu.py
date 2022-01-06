@@ -23,12 +23,12 @@ class SVM:
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 1000
+        self.C = 100
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-2
+        self.alphatol = 1e-8
         self.SVThresh = 0.
-        self.qpsize = 32
+        self.qpsize = 1024
         self.logs = []
         self.configs = {}
 
@@ -235,7 +235,6 @@ class SVM:
             tmp2 = cp.ones(worksize) * 10.
             h = matrix(np.array(cp.hstack((tmp1, tmp2)).get()))
 
-            _H = matrix(np.array(H.astype(float).get()))
             _c3 = matrix(np.array(cp.vstack((cp.eye(worksize)*-1,cp.eye(worksize))).get())) #G
             _c4 = matrix(np.array(cp.hstack((cp.zeros(worksize), cp.ones(worksize) * 10)).get())) #h
             _A = matrix(np.array(A.get())) #A
@@ -248,7 +247,7 @@ class SVM:
             eps_2_3 = np.spacing(1) ** (2 / 3)
             H = H + cp.diag(cp.full((worksize, worksize), eps_2_3).diagonal())
             H = H * cp.dot(Y[workset].reshape(-1,1), (Y[workset].T.reshape(1,-1)))
-
+            _H = matrix(np.array(H.get()).astype(float))
             solvers.options['maxiters'] = 1000
             solvers.options['show_progress'] = self.debug
             # solvers.options['abstol'] = 1e-8
@@ -796,16 +795,18 @@ def processa_moc(total_classes=5, ecoc=1, path_hdf="", lbp=False):
     dict_train, dict_validation, dict_test = generate_dictionary_dataset(path_hdf,
                                                                          total_classes=total_classes, lbp=lbp)
 
-    logging.info("Inicio treino")
+
+    if ecoc<=1:
+        logging.info("ini treino MOC")
+    else:
+        logging.info("ini treino ECOC com %fx o numero de bits.", ecoc)
+
     if lbp:
         logging.info("Descritor: LBP")
     else:
         logging.info("Descritor: HOG")
 
-    if ecoc==1:
-        logging.info("MOC")
-    else:
-        logging.info("ECOC com %ix o numero de bits.", ecoc)
+
 
     # lista de classes unicas
     unique_classes = list(dict_train.keys())
@@ -911,6 +912,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
     for svm_dataset in svm_datasets:
         ini_treino = datetime.datetime.now()
         x_train, y_train, y_classes_reais = get_x_y(dict_train, svm_dataset[0], svm_dataset[1])
+        x_test, y_test, y_test_classes_reais = get_x_y(dict_test, svm_dataset[0], svm_dataset[1])
         svm_ = SVM(x_train, y_train)
 
 
@@ -925,23 +927,49 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
         svm_.prep()
         svm_.trainSVM()
 
-        Ysvm, Y1svm = svm_.calc_saida(x_train)
+        Ysvm_train, Y1svm_train = svm_.calc_saida(x_train)
+        acuracia_treino = svm_.acuracia(y_train, Ysvm_train)
+        logging.info("Treino Acuracia:{}".format(acuracia_treino))
 
+        Ysvm_test, Y1svm_test = svm_.calc_saida(x_test)
+        acuracia_test = svm_.acuracia(y_test, Ysvm_test)
+        logging.info("Teste Acuracia:{}".format(acuracia_test))
 
-        # precisao = TP / (TP + FP)
-        # recall = TN / (TN + FN)
-        acuracia = svm_.acuracia(y_train, Ysvm)
-        logging.info("Treino Acuracia:{}".format(acuracia))
         moc_svms.append(svm_.return_instance_for_predict())
 
     resultados = []
     for svm_treinado in moc_svms:
-        Ysvm, Y1svm = svm_treinado.calc_saida(x_train)
-        Ysvm[Ysvm < 0] = '0'
-        Ysvm[Ysvm > 0] = '1'
-        resultados.append(np.array(Ysvm.get()).astype(int).astype(str))
+        Ysvm_train, Y1svm_train = svm_treinado.calc_saida(x_train)
+        Ysvm_train[Ysvm_train < 0] = '0'
+        Ysvm_train[Ysvm_train > 0] = '1'
+        resultados.append(np.array(Ysvm_train.get()).astype(int).astype(str))
 
+    decoder_resultados_oc(dict_moc, resultados, y_classes_reais, "treino")
 
+    pickle.dump(moc_svms, open("5016_svm_hog_moc_gpu.dat".format(total_classes), "wb"))
+
+    unique_ids = list(dict_test.keys())
+    x_test = dict_test[unique_ids[0]]
+    y_test = cp.full(x_test.shape[0], unique_ids[0])
+    for x in range(1, len(unique_ids)):
+        x_test = cp.concatenate([x_test, dict_test[unique_ids[x]]])
+        y_test = cp.concatenate([y_test, cp.full(dict_test[unique_ids[x]].shape[0], unique_ids[x])])
+
+    resultados = []
+
+    for svm_treinado in moc_svms:
+        Ysvm_train, Y1svm_train = svm_treinado.calc_saida(x_test)
+        Ysvm_train[Ysvm_train < 0] = 0
+        Ysvm_train[Ysvm_train > 0] = 1
+        resultados.append(np.array(Ysvm_train.get()).astype(int).astype(str))
+
+    decoder_resultados_oc(dict_moc, resultados, y_test, "teste")
+
+    fim_ = datetime.datetime.now()
+    print("Tempo total: {}".format(fim_-ini_))
+    return moc_svms
+
+def decoder_resultados_oc(dict_moc, resultados, y_classes_reais, tipo=""):
     # cria um dicionário inverso para o
     dict_classes = {}
     for classe in dict_moc.keys():
@@ -963,68 +991,17 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
 
     res_moc_classes = cp.array(res_moc_classes).reshape(-1,1)
 
-
     corretos = 0
     idx = 0
-    for x in range(res_moc_classes.shape[0]):
-        if res_moc_classes[x][0] == y_classes_reais[idx][0]:
-            corretos += 1
-        idx += 1
+    res_moc_classes = res_moc_classes.reshape(-1, 1)
+    y_classes_reais = y_classes_reais.reshape(-1, 1)
 
-    print("treino corretos", (res_moc_classes==y_classes_reais).astype(int).sum())
-    print("treino acuracia", (res_moc_classes==y_classes_reais).astype(int).mean())
-
-    pickle.dump(moc_svms, open("5016_svm_hog_moc_gpu.dat".format(total_classes), "wb"))
-
-    unique_ids = list(dict_test.keys())
-    x_test = dict_test[unique_ids[0]]
-    y_test = cp.full(x_test.shape[0], unique_ids[0])
-    for x in range(1, len(unique_ids)):
-        x_test = cp.concatenate([x_test, dict_test[unique_ids[x]]])
-        y_test = cp.concatenate([y_test, cp.full(dict_test[unique_ids[x]].shape[0], unique_ids[x])])
-
-    resultados = []
-
-    for svm_treinado in moc_svms:
-        Ysvm, Y1svm = svm_treinado.calc_saida(x_test)
-        Ysvm[Ysvm < 0] = 0
-        Ysvm[Ysvm > 0] = 1
-        resultados.append(np.array(Ysvm.get()).astype(int).astype(str))
-
-    res_moc = []
-    for res in range(len(resultados[0])):
-        lista_res = [res_y[res][0] for res_y in resultados]
-        lista_res = [str(x) for x in lista_res]
-        res_moc.append("".join(lista_res))
-
-    res_moc_classes = []
-
-    for x in res_moc:
-        if x in dict_classes.keys():
-            res_moc_classes.append(dict_classes[x])
-        else:
-            res_moc_classes.append(dict_classes[min_hamming_distance(x, dict_classes.keys())])
-
-    res_moc_classes = cp.array(res_moc_classes).reshape(-1, 1)
-
-    corretos = 0
-    idx = 0
-    ## melhorar comparação
-    for x in range(res_moc_classes.shape[0]):
-        if res_moc_classes[idx][0] == y_test[idx]:
-            corretos += 1
-        idx += 1
-
-    print("teste corretos", corretos)
-    print("teste acuracia", corretos/y_test.size)
-    fim_ = datetime.datetime.now()
-    print("Tempo total: {}".format(fim_-ini_))
-    return moc_svms
+    logging.info("ecoc: acuracia %s %f", tipo, (res_moc_classes == y_classes_reais).astype(int).mean())
+    print("ecoc: acuracia %s %f", tipo, (res_moc_classes==y_classes_reais).astype(int).mean())
 
 
-
-dict_moc, svm_datasets = processa_moc(10, 1, "./data/hog_11_15_20_56")
-train_svm_ocs(dict_moc, svm_datasets, 10, "./data/hog_11_15_20_56")
+dict_moc, svm_datasets = processa_moc(2500, 1, "./data/hog_11_15_20_56")
+train_svm_ocs(dict_moc, svm_datasets, 2500, "./data/hog_11_15_20_56")
 
 #
 # dict_moc, svm_datasets = processa_moc(32, 1, "./data/lbp_grid_total", lbp=True)

@@ -222,7 +222,7 @@ class SVM:
             tmp2 = np.ones(worksize) * 10.
             h = matrix(np.hstack((tmp1, tmp2)))
 
-            _H = matrix(H.astype(float))
+
             _c3 = matrix(np.vstack((np.eye(worksize)*-1,np.eye(worksize)))) #G
             _c4 = matrix(np.hstack((np.zeros(worksize), np.ones(worksize) * 10))) #h
             _A = matrix(A) #A
@@ -243,7 +243,7 @@ class SVM:
             eps_3 = np.spacing(1) ** (2 / 3)
             H = H + np.diag(np.full((worksize, worksize), eps_3).diagonal())
             H = H * np.dot(Y[workset].reshape(-1,1), (Y[workset].T.reshape(1,-1)))
-
+            _H = matrix(H.astype(float))
             solvers.options['maxiters'] = 1000
             solvers.options['show_progress'] = self.debug
             # solvers.options['abstol'] = 1e-8

@@ -1,4 +1,4 @@
-
+import qpsolvers
 import numpy as np
 import cupy as cp
 import math
@@ -201,7 +201,7 @@ class SVM:
             if nonworkSV.size > 0:
                 eqconstr = -self.alpha[nonworkSV].T.dot(Y[nonworkSV])
             else:
-                eqconstr = np.zeros(1)
+                eqconstr = np.zeros(1).reshape(-1,1)
 
             VLB = np.zeros((1, worksize))
             VUB = self.C[workset].astype('float')
@@ -218,13 +218,14 @@ class SVM:
 
             tmp1 = np.diag(np.ones(worksize) * -1)
             tmp2 = np.identity(worksize)
-            G = matrix(np.vstack((tmp1, tmp2)))
+            G = np.vstack((tmp1, tmp2))
+            _G = matrix(G)
 
             tmp1 = np.zeros(worksize)
             tmp2 = np.ones(worksize) * 10.
-            h = matrix(np.hstack((tmp1, tmp2)))
+            h = np.hstack((tmp1, tmp2))
+            _h = matrix(h)
 
-            _H = matrix(H.astype(float))
             _c3 = matrix(np.vstack((np.eye(worksize)*-1,np.eye(worksize)))) #G
             _c4 = matrix(np.hstack((np.zeros(worksize), np.ones(worksize) * 10))) #h
             _A = matrix(A) #A
@@ -235,16 +236,17 @@ class SVM:
 
             #todo: melhorar isso
             # ref: https://python.plainenglish.io/introducing-python-package-cvxopt-implementing-svm-from-scratch-dc40dda1da1f
-            teste = Y[workset]
-            teste = teste.reshape(-1, 1)
-            z = teste * X[worksetind, :]
-            hh = np.dot(z, z.T).astype('float')
-            oh = matrix(hh)
+            # teste = Y[workset]
+            # teste = teste.reshape(-1, 1)
+            # z = teste * X[worksetind, :]
+            # hh = np.dot(z, z.T).astype('float')
+            # oh = matrix(hh)
 
             H = self.calc_rbf(X[worksetind], X[worksetind])
             eps_3 = np.spacing(1) ** (2 / 3)
             H = H + np.diag(np.full((worksize, worksize), eps_3).diagonal())
             H = H * np.dot(Y[workset].reshape(-1,1), (Y[workset].T.reshape(1,-1)))
+            _H = matrix(H.astype(float))
 
             solvers.options['maxiters'] = 1000
             solvers.options['show_progress'] = self.debug
@@ -252,8 +254,13 @@ class SVM:
             # solvers.options['reltol'] = 1e-8
             # solvers.options['feastol'] = 1e-8
             # solvers.options['refinement'] = 1
-            sol = solvers.qp(_H, _f, G, h, A=_A, b=_eqconstr, initvals=_start_val)
+            sol = solvers.qp(_H, _f, _G, _h, A=_A, b=_eqconstr, initvals=_start_val)
             workAlpha = np.array(sol['x'])
+
+            # qpsol = qpsolvers.solve_qp(H, f, G, h, A, b=eqconstr,lb=VLB, ub=VUB, solver='quadprog', initvals=start_val, verbose=self.debug)
+
+
+
 
             alphaOld = np.copy(self.alpha)
             self.alpha[workset] = workAlpha.squeeze()
@@ -314,6 +321,10 @@ class SVM:
         Y[Y==0] = 1
         return Y, Y1
 
+    def acuracia(self, y, y_predito):
+        y.reshape(y_predito.shape)
+        acuracia = (y==y_predito).astype(int).mean()
+        return acuracia
 
 
 
@@ -334,8 +345,7 @@ svm.trainSVM()
 
 Ysvm, Y1svm = svm.calc_saida(X)
 
-metrica = metrica(Y, Ysvm)
-acuracia = metrica.acuracia()
+acuracia = svm.acuracia(Y, Ysvm)
 
 
 print("Treino - Acuracia:{}".format(acuracia))
