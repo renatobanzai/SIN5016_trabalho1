@@ -23,12 +23,12 @@ class SVM:
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 100
+        self.C = 1000
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-8
+        self.alphatol = 1e-4
         self.SVThresh = 0.
-        self.qpsize = 1024
+        self.qpsize = 128
         self.logs = []
         self.configs = {}
 
@@ -51,12 +51,19 @@ class SVM:
 
     def trainSVM(self):
         logging.info("svm.trainSVM()")
-        logging.info("svm.trainSVM()")
 
         X = self.X
         Y = self.Y
         logging.info('X.shape %s', str(X.shape))
         logging.info('Y.shape %s', str(Y.shape))
+        logging.info('qpsize %f', self.qpsize)
+        logging.info('chunksize %f', self.chunksize)
+        logging.info('C %f', self.C[0][0])
+        logging.info('h %f', self.h)
+        logging.info('alphatol %f', self.alphatol)
+        logging.info('kkttol %f', self.kkttol)
+
+
 
 
         saida_svm = cp.zeros((self.N,1))
@@ -915,14 +922,6 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
         x_test, y_test, y_test_classes_reais = get_x_y(dict_test, svm_dataset[0], svm_dataset[1])
         svm_ = SVM(x_train, y_train)
 
-
-        # teste = SVC()
-        # teste.fit(x_train, y_train)
-        # teste_y = teste.predict(x_train)
-        # acc =accuracy_score(y_train, teste_y)
-        print("Shape do array de treino: {}".format(x_train.shape))
-        logs.append("Shape do array de treino: {}".format(x_train.shape))
-
         svm_.debug = False
         svm_.prep()
         svm_.trainSVM()
@@ -936,6 +935,9 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
         logging.info("Teste Acuracia:{}".format(acuracia_test))
 
         moc_svms.append(svm_.return_instance_for_predict())
+        fim_treino = datetime.datetime.now()
+        print("tempo treinamento {}".format(fim_treino-ini_treino))
+        logging.info("tempo treinamento {}".format(fim_treino-ini_treino))
 
     resultados = []
     for svm_treinado in moc_svms:
@@ -967,6 +969,7 @@ def train_svm_ocs(dict_moc, svm_datasets, total_classes, path_hdf, lbp=False):
 
     fim_ = datetime.datetime.now()
     print("Tempo total: {}".format(fim_-ini_))
+    logging.info("tempo total".format(fim_ - ini_))
     return moc_svms
 
 def decoder_resultados_oc(dict_moc, resultados, y_classes_reais, tipo=""):
