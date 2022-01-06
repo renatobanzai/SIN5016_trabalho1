@@ -1,3 +1,4 @@
+
 import numpy as np
 import cupy as cp
 import math
@@ -191,7 +192,8 @@ class SVM:
 
             # Passo 8: Soluciona a programação quadrática
             H = self.calc_rbf(self.X[worksetind, :], self.X[worksetind, :])
-            H += np.diag(np.ones((worksize, 1))*np.spacing(1)**(2/3))
+            eps_2_3 = np.spacing(1)**(2/3)
+            H += np.diag(np.ones((worksize, 1))*eps_2_3)
             H = H * (self.Y[workset].dot(Y[workset].T))
 
             A = Y[workset].T.astype('float').reshape(1,-1)
@@ -222,7 +224,7 @@ class SVM:
             tmp2 = np.ones(worksize) * 10.
             h = matrix(np.hstack((tmp1, tmp2)))
 
-            _H = matrix(H)
+            _H = matrix(H.astype(float))
             _c3 = matrix(np.vstack((np.eye(worksize)*-1,np.eye(worksize)))) #G
             _c4 = matrix(np.hstack((np.zeros(worksize), np.ones(worksize) * 10))) #h
             _A = matrix(A) #A
@@ -312,6 +314,10 @@ class SVM:
         Y[Y==0] = 1
         return Y, Y1
 
+
+
+
+
 # X = [2 7; 3 6; 2 2; 8 1; 6 4; 4 8; 9 5; 9 9; 9 4; 6 9; 7 4; 4 4];
 # Y = [ +1;  +1;  +1;  +1;  +1;  -1;  -1;  -1;  -1;  -1;  -1;  -1];
 X = [[2,7],[3,6],[2,2],[8,1],[6,4],[4,8],[9,5],[9,9],[9,4],[6,9],[7,4],[4,4]]
@@ -328,16 +334,9 @@ svm.trainSVM()
 
 Ysvm, Y1svm = svm.calc_saida(X)
 
-pos = np.flatnonzero(Y == 1)
-neg = np.flatnonzero(Y == -1)
+metrica = metrica(Y, Ysvm)
+acuracia = metrica.acuracia()
 
-TP = np.sum(Ysvm[pos] == 1)
-FN = np.sum(Ysvm[pos] == -1)
-TN = np.sum(Ysvm[neg] == -1)
-FP = np.sum(Ysvm[neg] == 1)
 
-precisao = TP / (TP + FP)
-recall = TN / (TN + FN)
-acuracia = (TP + TN) / (TP + TN + FP + FN)
+print("Treino - Acuracia:{}".format(acuracia))
 
-print("Treino - Precisao: {} Recall:{} Acuracia:{}".format(precisao, recall, acuracia))
