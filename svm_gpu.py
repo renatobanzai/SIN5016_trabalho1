@@ -18,17 +18,17 @@ class SVM:
         self.X = X
         self.Y = Y
         self.kkttol = 5e-2
-        self.chunksize = 500
+        self.chunksize = 4000
         self.bias = []
         self.sv = []
         self.svcoeff = []
         self.normalw = []
-        self.C = 1000
+        self.C = 1
         self.h = 0.01
         self.debug = True
-        self.alphatol = 1e-4
+        self.alphatol = 1e-2
         self.SVThresh = 0.
-        self.qpsize = 128
+        self.qpsize = 512
         self.logs = []
         self.configs = {}
 
