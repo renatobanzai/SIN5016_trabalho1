@@ -69,6 +69,8 @@ def treino_svm_total(dt_obj):
         svm_pesos, a, b = treino_svm((x_train, y_train_svm, y_train_class), (x_test, y_test_svm, y_test_class), config=config)
         moc_svms_full.append(svm_pesos)
 
+    pickle.dump(moc_svms_full, open("5016_svm_hog_moc_gpu_{}.dat".format(len(dt_obj.unique_artists)), "wb"))
+
     resultados = []
     for svm_treinado in moc_svms_full:
         Ysvm_train, Y1svm_train = svm_treinado.predict(x_train)
@@ -136,12 +138,12 @@ def kfold_cross_validation(dt_obj):
             config['sv'] = []
             config['svcoeff'] = []
             config['normalw'] = []
-            config['C'] = 0.2
+            config['C'] = 2
             config['h'] = 0
             config['debug'] = True
             config['alphatol'] = 1e-2
             config['SVThresh'] = 0
-            config['qpsize'] = 512
+            config['qpsize'] = 256
             config['logs'] = []
             config['configs'] = {}
             config['kernelpar'] = 1.6
@@ -164,7 +166,7 @@ def kfold_cross_validation(dt_obj):
 
 
 dt_hog = dataprep.dataprep(hdf5_path="/home/madeleine/Documents/mestrado/5016/trabalho/data/hog_11_15_20_56",
-                             max_artists=1000)
+                             max_artists=2544)
 
 dt_hog.load_hdf5()
 dt_hog.get_dictionary_artists()
