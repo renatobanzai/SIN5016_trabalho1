@@ -25,6 +25,7 @@ class svm_gpu:
         logging.info("instanciado um svm")
         self.X = X
         self.Y = Y
+        self.config = config
         if config:
             self.kkttol = config['kkttol']
             self.chunksize = config['chunksize']
@@ -94,15 +95,7 @@ class svm_gpu:
         Y = self.Y
         logging.info('X.shape %s', str(X.shape))
         logging.info('Y.shape %s', str(Y.shape))
-        logging.info('qpsize %f', self.qpsize)
-        logging.info('chunksize %f', self.chunksize)
-        logging.info('C %f', self.C[0][0])
-        logging.info('h %f', self.h)
-        logging.info('alphatol %f', self.alphatol)
-        logging.info('kkttol %f', self.kkttol)
-
-
-
+        logging.info('config: {}'.format(self.config))
 
         saida_svm = cp.zeros((self.N,1))
         alphaOld = cp.copy(self.alpha)
@@ -119,7 +112,7 @@ class svm_gpu:
         sameWS = 0
         self.bias = 0
         while True:
-            logging.info('Iteracao %i', iteracao)
+            # logging.info('Iteracao %i', iteracao)
 
             # Passo 1: determina os vetores de suporte
             self.findSV()
@@ -168,11 +161,13 @@ class svm_gpu:
 
 
             count_kkt = len(cp.flatnonzero(KKTViolations))
-            logging.info('KKT violacoes: %i', count_kkt)
+
+            if iteracao % 100 == 0:
+                logging.info('iteracao: {} KKT violacoes: {}'.format(iteracao, count_kkt))
 
             if count_kkt == 0:
                 # sem violacoes, terminar
-                logging.info('fim do treino por fim das violacoes de KKT')
+                logging.info('fim do treino por fim das violacoes de KKT, total iteracoes: {}'.format(iteracao))
                 break
 
             # Passo 5: determinar o novo conjunto de trabalho
