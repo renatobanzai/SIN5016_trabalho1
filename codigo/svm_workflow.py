@@ -171,7 +171,7 @@ dt_hog = dataprep.dataprep(hdf5_path="/home/madeleine/Documents/mestrado/5016/tr
 dt_hog.load_hdf5()
 dt_hog.get_dictionary_artists()
 dt_hog.get_dictionary_kfold_test()
-dt_hog.get_dictionary_moc_ecoc_artists()
+dt_hog.get_dictionary_moc_ecoc_artists(ecoc=2)
 
 treino_svm_total(dt_hog)
 # kfold_cross_validation(dt_hog)
