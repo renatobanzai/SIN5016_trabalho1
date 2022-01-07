@@ -5,9 +5,10 @@ import cupy as cp
 import numpy as np
 import math
 import random
+import datetime
 
 class dataprep:
-    def __init__(self, hdf5_path, max_artists=-1, random_state=2):
+    def __init__(self, hdf5_path, max_artists=-1, random_state=2, lbp=False):
         '''
         Inicia a classe
         :param hdf5_path: path com o arquivo hdf5 de origem
@@ -16,6 +17,8 @@ class dataprep:
         self.hdf5_path = hdf5_path
         self.random_state = random_state
         self.max_artists = max_artists
+        self.lbp = lbp
+
 
     def load_hdf5(self, min_photos_by_artist=7):
         '''
@@ -47,7 +50,10 @@ class dataprep:
             # filtra os registros/fotografias de cada artista
             dataset = self.cp_data[cp.where(self.cp_data[:, 0] == artist)]
             # adiciona um tupla (x,y) por artista
-            self.dict_artists[artist] = (dataset[:,1:], dataset[:,:1])
+            if self.lbp:
+                self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
+            else:
+                self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
         return self.dict_artists
 
     def get_dictionary_kfold_test(self, train_percent=0.8, k=5):
@@ -126,7 +132,7 @@ class dataprep:
         if ecoc > 1:
             randomlist = []
             # evita repeticao de randomicos
-            while len(set(randomlist)) < self.moc_ecoc_qty:
+            while len(set(randomlist)) < qty_classes:
                 randomlist = list(set(randomlist))
                 n = np.random.randint(0, max_random_val)
                 randomlist.append(n)
@@ -224,19 +230,26 @@ class dataprep:
 
     def hamming_distance(self, bit_1, bit_2):
         hamming = 0
+        # hamming = abs(np.array(list(bit_1)).astype(np.int8) - np.array(list(bit_2)).astype(np.int8)).sum()
         size = len(bit_1)
         for x in range(size):
             hamming += abs(int(bit_2[x]) - int(bit_1[x]))
         return hamming
 
     def min_hamming_distance(self, val, list_vals, max_hamming=-1):
+        # ini = datetime.datetime.now()
+        min_hamming = max_hamming
         if max_hamming < 0:
             min_hamming = len(val) + 1
         for j in list_vals:
             hd = self.hamming_distance(val, j)
+            if hd==1:
+                return j
             if hd < min_hamming:
                 min_hamming = hd
                 min_val = j
+        # fim = datetime.datetime.now()
+        # tempo = fim - ini
         return min_val
 
     def decoder_resultados_oc(self, dict_moc, resultados, y_classes_reais, tipo=""):
@@ -252,11 +265,16 @@ class dataprep:
 
         res_moc_classes = []
 
+        # para não fazer a contagem item a item no metodo min_hamming_distante
+        max_hamming = len(res_moc[0])
+
         for x in res_moc:
             if x in dict_classes.keys():
                 res_moc_classes.append(dict_classes[x])
             else:
-                res_moc_classes.append(dict_classes[self.min_hamming_distance(x, dict_classes.keys())])
+                res_moc_classes.append(dict_classes[self.min_hamming_distance(x,
+                                                                              dict_classes.keys(),
+                                                                              max_hamming=max_hamming)])
 
         res_moc_classes = cp.array(res_moc_classes).reshape(-1, 1)
 
