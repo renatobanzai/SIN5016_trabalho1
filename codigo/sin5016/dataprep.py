@@ -350,13 +350,13 @@ class dataprep:
 
     def get_mlp_prep_fold(self, dict_data, folds=[], lbp=False):
         j = 0
-        k = 0
         lista_classes = list(dict_data.keys())
         for fold in folds:
             for i in range(len(lista_classes)):
-                if i == 0:
+                if j == 0:
                     x_train = dict_data[lista_classes[i]][0][fold]
                     y_classes_reais = dict_data[lista_classes[i]][1][fold]
+                    j = 1
                 else:
                     x_train = cp.concatenate([x_train, dict_data[lista_classes[i]][0][fold]])
                     y_classes_reais = cp.concatenate(

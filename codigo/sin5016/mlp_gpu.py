@@ -18,6 +18,8 @@ class mlp_gpu:
         self.n_iterations = config["n_iterations"]
         self.min_cost = config["min_cost"]
         self.l2 = config["l2"]
+        self.activation = config["activation"]
+        self.initialization_type = config["initialization_type"]
         self.layers_size = [self.input_layer_size, self.hidden_layer_size, self.output_layer_size]
         self.parameters = {}
         self.parameters_numpy = {}
@@ -33,20 +35,31 @@ class mlp_gpu:
         expZ = np.exp(Z - np.max(Z))
         return expZ / expZ.sum(axis=0, keepdims=True)
 
-    def sigmoid(self, Z):
-        return 1 / (1 + cp.exp(-Z))
-
     def softmax(self, Z):
         expZ = cp.exp(Z - cp.max(Z))
         return expZ / expZ.sum(axis=0, keepdims=True)
+
+    def relu(self, Z):
+        A = cp.maximum(0, Z)
+        return A
 
     def initialize_parameters(self):
         cp.random.seed(1)
         for l in range(1, len(self.layers_size)):
             # inicializacao como no artigo sugerido
-            r = np.sqrt(1 / self.layers_size[l-1])
-            self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
-            self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
+            if self.initialization_type == 'xavier_1':
+                r = np.sqrt(1 / self.layers_size[l-1]) * 10
+                self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
+                self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
+            elif self.initialization_type == 'xavier_2':
+                r = np.sqrt(6)  / (self.layers_size[l - 1] + self.layers_size[l]) * 10
+                self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
+                self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
+            elif self.initialization_type == 'randn':
+                self.parameters["W" + str(l)] = cp.random.randn(self.layers_size[l], self.layers_size[l - 1])
+                self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
+
+
 
     def forward(self, X):
         store = {}
@@ -54,7 +67,11 @@ class mlp_gpu:
         A = X.T
         for l in range(self.L - 1):
             Z = self.parameters["W" + str(l + 1)].dot(A) + self.parameters["b" + str(l + 1)]
-            A = self.sigmoid(Z)
+            if self.activation == "sigmoid":
+                A = self.sigmoid(Z)
+            elif self.activation == "relu":
+                A = self.relu(Z)
+
             store["A" + str(l + 1)] = A
             store["W" + str(l + 1)] = self.parameters["W" + str(l + 1)]
             store["Z" + str(l + 1)] = Z
@@ -85,6 +102,13 @@ class mlp_gpu:
         store["Z" + str(self.L)] = Z
 
         return A, store
+
+    def relu_derivative(self, Z):
+        A = self.relu(Z)
+        return cp.int64(A > 0)
+
+    def sigmoid(self, Z):
+        return 1 / (1 + cp.exp(-Z))
 
     def sigmoid_derivative(self, Z):
         s = 1 / (1 + cp.exp(-Z))
@@ -120,7 +144,11 @@ class mlp_gpu:
         derivatives["db" + str(self.L)] = db
 
         for l in range(self.L - 1, 0, -1):
-            dZ = dAPrev * self.sigmoid_derivative(store["Z" + str(l)])
+            if self.activation == "sigmoid":
+                dZ = dAPrev * self.sigmoid_derivative(store["Z" + str(l)])
+            elif self.activation == 'relu':
+                dZ = cp.multiply(dAPrev, self.sigmoid_derivative(store["Z" + str(l)]))
+
             # adicionando regulizacao l2
             dW = (1. / self.n * dZ.dot(store["A" + str(l - 1)].T)) + self.l2/self.n * store["W" + str(l)]
             db = 1. / self.n * cp.sum(dZ, axis=1, keepdims=True)
@@ -147,8 +175,10 @@ class mlp_gpu:
             A, store = self.forward(X)
             # adicionando regularizacao l2
 
-            L2_reg= (self.l2 / (2 * self.n)) * np.sum(np.square(self.dictionary_to_vector(self.parameters)))
-            cost = -cp.mean(Y * cp.log(A.T + 1e-8)) + L2_reg
+            cost = - (1 / self.n) * cp.sum(
+                cp.multiply(Y, cp.log(A.T)) + cp.multiply(1 - Y, cp.log(1 - A.T)))
+            L2_reg = (self.l2 / (2 * self.n)) * cp.sum(cp.square(self.dictionary_to_vector(self.parameters)))
+            cost += L2_reg
 
             if cost <= self.min_cost:
                 end_loop = datetime.datetime.now()

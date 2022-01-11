@@ -118,7 +118,7 @@ def kfold_cross_validation(dt_obj, config):
     logging.info("tempo kfold_cross_validation: {}".format(fim_ - ini_))
     logging.info("fim kfold_cross_validation")
     logging.info("kfolds lista acuracia: {}".format(list_acuracia_kfolds))
-    logging.info("kfolds media dos bits: {}".format(np.array(list_acuracia_kfolds).mean()))
+    logging.info("kfolds media acuracia: {}".format(np.array(list_acuracia_kfolds).mean()))
 
 def treino_hog():
     '''
@@ -134,17 +134,19 @@ def treino_hog():
     dt_hog.load_hdf5()
     dt_hog.get_dictionary_artists()
     dt_hog.get_dictionary_kfold_test()
-    dt_hog.get_dictionary_moc_ecoc_artists(ecoc=1)
+    # dt_hog.get_dictionary_moc_ecoc_artists(ecoc=1)
 
     # dicionario de configuracao dos hiperparametros do modelo.
     config = {}
-    config['learning_rate'] = 0.15
+    config['learning_rate'] = 0.1
     config['input_layer_size'] = 576
-    config['hidden_layer_size'] = 60
+    config['hidden_layer_size'] = 100
     config['n_iterations'] = 4000
     config['output_layer_size'] = max_artists
-    config['l2'] = 0.08
-    config['min_cost'] = 0.0
+    config['l2'] = 0.04
+    config['min_cost'] = 0.2
+    config['activation'] = "relu"
+    config['initialization_type'] = "xavier_2"
 
 
     # treino_mlp_total(dt_hog, config)
