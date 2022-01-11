@@ -6,6 +6,7 @@ import numpy as np
 import math
 import random
 import datetime
+from sklearn.preprocessing import OneHotEncoder
 
 class dataprep:
     def __init__(self, hdf5_path, max_artists=-1, random_state=2, lbp=False):
@@ -41,7 +42,7 @@ class dataprep:
         self.unique_artists = unique_artists
         return self.unique_artists
 
-    def get_dictionary_artists(self, list_unique_artists=[]):
+    def get_dictionary_artists(self, list_unique_artists=[], one_hot=False):
         self.dict_artists = {}
         if not list_unique_artists:
             list_unique_artists = self.unique_artists
@@ -50,10 +51,16 @@ class dataprep:
             # filtra os registros/fotografias de cada artista
             dataset = self.cp_data[cp.where(self.cp_data[:, 0] == artist)]
             # adiciona um tupla (x,y) por artista
-            if self.lbp:
-                self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
+            if one_hot==False:
+                if self.lbp:
+                    self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
+                else:
+                    self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
             else:
-                self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
+                if self.lbp:
+                    self.dict_artists[artist] = (dataset[:,1:]/255, self.one_hot(dataset[:, :1]))
+                else:
+                    self.dict_artists[artist] = (dataset[:, 1:], self.one_hot(dataset[:,:1]))
         return self.dict_artists
 
     def get_dictionary_kfold_test(self, train_percent=0.8, k=5):
@@ -144,12 +151,15 @@ class dataprep:
             bin_rep = binary_format.format(i)
             matriz_binarios.append(bin_rep)
 
-
         np.random.shuffle(matriz_binarios)
 
         self.dict_moc_ecoc_artists = {}
+        # PARA FACILITAR O CALCULO DE DISTANCIA
+        self.dict_matriz_binarios = {}
         for i in range(qty_classes):
             self.dict_moc_ecoc_artists[self.unique_artists[i]] = matriz_binarios[i]
+            # PARA FACILITAR O CALCULO DE DISTANCIA
+            self.dict_matriz_binarios[matriz_binarios[i]] = self.bit_to_list(matriz_binarios[i])
 
         logging.info("Matriz de bits para ECOC/MOC {}".format(self.dict_moc_ecoc_artists))
 
@@ -228,6 +238,27 @@ class dataprep:
         y_classes_reais = y_classes_reais.reshape(-1, 1)
         return x_train, y_train, y_classes_reais
 
+    def hamming_distance_list(self, bit_1, bit_2):  # 0.06
+        hamming = 0
+        i = 0
+        for x in bit_1:
+            hamming += abs(bit_2[i] - x)
+            i += 1
+        return hamming
+
+    def min_hamming_distance_list(self, val, list_vals, max_hamming=-1, classe_default=""):
+        # ini = datetime.datetime.now()
+        min_val = classe_default
+        min_hamming = max_hamming
+        for j in list_vals:
+            hd = self.hamming_distance_list(val, j)
+            if hd == 1:
+                return self.list_to_bit(j)
+            if hd < min_hamming:
+                min_hamming = hd
+                min_val = j
+        return self.list_to_bit(min_val)
+
     def hamming_distance(self, bit_1, bit_2):
         hamming = 0
         # hamming = abs(np.array(list(bit_1)).astype(np.int8) - np.array(list(bit_2)).astype(np.int8)).sum()
@@ -252,11 +283,23 @@ class dataprep:
         # tempo = fim - ini
         return min_val
 
+    def bit_to_list(self, bit_string):
+        list_bin = list(bit_string)
+        return [int(x) for x in list_bin]
+
+    def list_to_bit(self, list_bit):
+        list_str = [str(x) for x in list_bit]
+        return "".join(list_str)
+
+
     def decoder_resultados_oc(self, dict_moc, resultados, y_classes_reais, tipo=""):
-        # cria um dicionário inverso para o
+        logging.info("decode de {} linhas.".format(len(resultados[0])))
+        ini = datetime.datetime.now()
+        # cria um dicionário inverso para o decode
         dict_classes = {}
         for classe in dict_moc.keys():
             dict_classes[dict_moc[classe]] = classe
+            classe_default = self.bit_to_list(dict_moc[classe])
 
         res_moc = []
         for res in range(len(resultados[0])):
@@ -272,17 +315,29 @@ class dataprep:
             if x in dict_classes.keys():
                 res_moc_classes.append(dict_classes[x])
             else:
-                res_moc_classes.append(dict_classes[self.min_hamming_distance(x,
-                                                                              dict_classes.keys(),
-                                                                              max_hamming=max_hamming)])
+                res_bit = self.min_hamming_distance_list(self.bit_to_list(x),
+                                                         self.dict_matriz_binarios.values(),
+                                                         max_hamming=max_hamming,
+                                                         classe_default=classe_default)
+
+                res_moc_classes.append(dict_classes[res_bit])
 
         res_moc_classes = cp.array(res_moc_classes).reshape(-1, 1)
 
         res_moc_classes = res_moc_classes.reshape(-1, 1)
         y_classes_reais = y_classes_reais.reshape(-1, 1)
-
+        fim = datetime.datetime.now()
+        logging.info("decode tempo: {}".format(fim-ini))
         logging.info("ecoc: acuracia %s %f", tipo, (res_moc_classes == y_classes_reais).astype(int).mean())
 
+    def one_hot(self, y):
+        enc = OneHotEncoder(sparse=False, categories='auto')
+        one_hot_y = np.array(y.get())
+        one_hot_y = enc.fit_transform(one_hot_y.reshape(len(one_hot_y), -1))
+        one_hot_y = cp.array(one_hot_y)
+
+
+        return one_hot_y
 
 
 

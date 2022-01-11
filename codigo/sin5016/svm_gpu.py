@@ -1,18 +1,8 @@
-import sys
 import logging
 import numpy as np
 import cupy as cp
 import math
 from cvxopt import matrix, solvers
-import matplotlib.pylab as plt
-import h5py
-import datetime
-import pickle
-import random
-
-import sklearn
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
 
 class svm_gpu:
     def __init__(self, X, Y, config=None):
@@ -162,6 +152,8 @@ class svm_gpu:
 
             count_kkt = len(cp.flatnonzero(KKTViolations))
 
+
+
             if iteracao % 100 == 0:
                 logging.info('iteracao: {} KKT violacoes: {}'.format(iteracao, count_kkt))
 
@@ -215,6 +207,8 @@ class svm_gpu:
 
             worksetind = cp.flatnonzero(workset)
 
+
+
             if cp.all(workset==worksetOld):
                 sameWS +=1
                 if sameWS == 3:
@@ -263,7 +257,6 @@ class svm_gpu:
             # cvxopt = quadprog(C1, C2, C3, C4, C5, C6      , C7 , C8 ,
             # matlab = quadprog(H , f , [], [], A , eqconstr, VLB, VUB, startVal,
 
-            # _H = matrix(H) #P #todo: ver direito isso ae
             _f = matrix(np.array(f.get())) #q
 
             tmp1 = cp.diag(cp.ones(worksize) * -1)
@@ -393,5 +386,5 @@ def acuracia(y, y_predito):
     :return: acuraria de 0 a 1
     '''
     y.reshape(y_predito.shape)
-    acuracia = (y==y_predito).astype(int).mean()
+    acuracia = (y==y_predito).astype(float).mean()
     return acuracia

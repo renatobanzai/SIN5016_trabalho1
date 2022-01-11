@@ -34,8 +34,9 @@ class ANN:
         cp.random.seed(1)
 
         for l in range(1, len(self.layers_size)):
-            self.parameters["W" + str(l)] = cp.random.randn(self.layers_size[l], self.layers_size[l - 1]) / cp.sqrt(
-                self.layers_size[l - 1])
+            # inicializacao como no artigo sugerido
+            r = np.sqrt(1 / self.layers_size[l-1])
+            self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
             self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
 
     def forward(self, X):
@@ -220,7 +221,7 @@ def train_hog(path_hog):
     hog_array = cp.array(f['descriptor'])  # numpy array
 
 
-    qtd_classes = 200
+    qtd_classes = 1000
     percent_train = 0.6
 
 
@@ -246,11 +247,11 @@ def train_hog(path_hog):
     print("train_x's shape: " + str(train_x.shape))
     print("test_x's shape: " + str(test_x.shape))
 
-    layers_dims = [24, cp.unique(y_train_hog[:, 0]).shape[0]]
+    layers_dims = [80, cp.unique(y_train_hog[:, 0]).shape[0]]
 
     ann = ANN(layers_dims)
     n_iterations = 10000
-    learning_rate = 1.45
+    learning_rate = 0.25
     ann.fit(train_x, train_y, learning_rate=learning_rate, n_iterations=n_iterations)
 
     time_end = datetime.datetime.now()
@@ -312,7 +313,7 @@ def train_lbp(path_lbp):
     ann.plot_cost()
 
 # train_lbp("./data/lbp_11_15_18_20") #lbp errado
-train_lbp("./data/lbp_grid")
-# train_hog("./data/hog_11_15_20_56")
+# train_lbp("./data/lbp_grid")
+train_hog("./data/hog_11_15_20_56")
 
 
