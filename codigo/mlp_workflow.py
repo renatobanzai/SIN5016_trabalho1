@@ -138,11 +138,14 @@ def treino_hog():
 
     # dicionario de configuracao dos hiperparametros do modelo.
     config = {}
-    config['learning_rate'] = 0.75
+    config['learning_rate'] = 0.15
     config['input_layer_size'] = 576
-    config['hidden_layer_size'] = 100
+    config['hidden_layer_size'] = 60
     config['n_iterations'] = 4000
     config['output_layer_size'] = max_artists
+    config['l2'] = 0.08
+    config['min_cost'] = 0.0
+
 
     # treino_mlp_total(dt_hog, config)
     kfold_cross_validation(dt_hog, config)

@@ -16,6 +16,8 @@ class mlp_gpu:
         self.hidden_layer_size = config["hidden_layer_size"]
         self.output_layer_size = config["output_layer_size"]
         self.n_iterations = config["n_iterations"]
+        self.min_cost = config["min_cost"]
+        self.l2 = config["l2"]
         self.layers_size = [self.input_layer_size, self.hidden_layer_size, self.output_layer_size]
         self.parameters = {}
         self.parameters_numpy = {}
@@ -88,6 +90,18 @@ class mlp_gpu:
         s = 1 / (1 + cp.exp(-Z))
         return s * (1 - s)
 
+    def dictionary_to_vector(self, params_dict):
+        count = 0
+        for key in params_dict.keys():
+            new_vector = cp.reshape(params_dict[key], (-1, 1))
+            if count == 0:
+                theta_vector = new_vector
+            else:
+                theta_vector = cp.concatenate((theta_vector, new_vector))
+            count += 1
+
+        return theta_vector
+
     def backward(self, X, Y, store):
 
         derivatives = {}
@@ -97,7 +111,8 @@ class mlp_gpu:
         A = store["A" + str(self.L)]
         dZ = A - Y.T
 
-        dW = dZ.dot(store["A" + str(self.L - 1)].T) / self.n
+        # segundo termo para regularizacao l2
+        dW = (dZ.dot(store["A" + str(self.L - 1)].T) / self.n) + self.l2/self.n * store["W" + str(self.L)]
         db = cp.sum(dZ, axis=1, keepdims=True) / self.n
         dAPrev = store["W" + str(self.L)].T.dot(dZ)
 
@@ -106,7 +121,8 @@ class mlp_gpu:
 
         for l in range(self.L - 1, 0, -1):
             dZ = dAPrev * self.sigmoid_derivative(store["Z" + str(l)])
-            dW = 1. / self.n * dZ.dot(store["A" + str(l - 1)].T)
+            # adicionando regulizacao l2
+            dW = (1. / self.n * dZ.dot(store["A" + str(l - 1)].T)) + self.l2/self.n * store["W" + str(l)]
             db = 1. / self.n * cp.sum(dZ, axis=1, keepdims=True)
             if l > 1:
                 dAPrev = store["W" + str(l)].T.dot(dZ)
@@ -129,7 +145,17 @@ class mlp_gpu:
         start_loop = datetime.datetime.now()
         for loop in range(self.n_iterations):
             A, store = self.forward(X)
-            cost = -cp.mean(Y * cp.log(A.T + 1e-8))
+            # adicionando regularizacao l2
+
+            L2_reg= (self.l2 / (2 * self.n)) * np.sum(np.square(self.dictionary_to_vector(self.parameters)))
+            cost = -cp.mean(Y * cp.log(A.T + 1e-8)) + L2_reg
+
+            if cost <= self.min_cost:
+                end_loop = datetime.datetime.now()
+                logging.info("atingiu custo minimo: {}, iteracao:{}, tempo:{}".format(cost, loop, (end_loop - start_loop)))
+                self.costs.append(cost)
+                break
+
             derivatives = self.backward(X, Y, store)
 
             for l in range(1, self.L + 1):
@@ -148,6 +174,8 @@ class mlp_gpu:
         #convert cupy to numpy to enable cpu
         for x in self.parameters.keys():
             self.parameters_numpy[x] = cp.asnumpy(self.parameters[x])
+
+        logging.info("Custo minimo: {}".format(float(min(self.costs))))
 
     def predict_cpu(self, X, Y):
         A, cache = self.forward(X)
