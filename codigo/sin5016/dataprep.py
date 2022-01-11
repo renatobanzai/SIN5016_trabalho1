@@ -42,7 +42,7 @@ class dataprep:
         self.unique_artists = unique_artists
         return self.unique_artists
 
-    def get_dictionary_artists(self, list_unique_artists=[], one_hot=False):
+    def get_dictionary_artists(self, list_unique_artists=[]):
         self.dict_artists = {}
         if not list_unique_artists:
             list_unique_artists = self.unique_artists
@@ -51,16 +51,10 @@ class dataprep:
             # filtra os registros/fotografias de cada artista
             dataset = self.cp_data[cp.where(self.cp_data[:, 0] == artist)]
             # adiciona um tupla (x,y) por artista
-            if one_hot==False:
-                if self.lbp:
-                    self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
-                else:
-                    self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
+            if self.lbp:
+                self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
             else:
-                if self.lbp:
-                    self.dict_artists[artist] = (dataset[:,1:]/255, self.one_hot(dataset[:, :1]))
-                else:
-                    self.dict_artists[artist] = (dataset[:, 1:], self.one_hot(dataset[:,:1]))
+                self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
         return self.dict_artists
 
     def get_dictionary_kfold_test(self, train_percent=0.8, k=5):
@@ -338,6 +332,42 @@ class dataprep:
 
 
         return one_hot_y
+
+    def get_mlp_prep(self, dict_data, lbp=False):
+        lista_classes = list(dict_data.keys())
+        for i in range(len(lista_classes)):
+            if i == 0:
+                x_train = dict_data[lista_classes[i]][0]
+                y_classes_reais = dict_data[lista_classes[i]][1]
+            else:
+                x_train = cp.concatenate([x_train, dict_data[lista_classes[i]][0]])
+                y_classes_reais = cp.concatenate(
+                    [y_classes_reais, dict_data[lista_classes[i]][1]])
+
+        y_train = self.one_hot(y_classes_reais)
+
+        return x_train, y_train, y_classes_reais
+
+    def get_mlp_prep_fold(self, dict_data, folds=[], lbp=False):
+        j = 0
+        k = 0
+        lista_classes = list(dict_data.keys())
+        for fold in folds:
+            for i in range(len(lista_classes)):
+                if i == 0:
+                    x_train = dict_data[lista_classes[i]][0][fold]
+                    y_classes_reais = dict_data[lista_classes[i]][1][fold]
+                else:
+                    x_train = cp.concatenate([x_train, dict_data[lista_classes[i]][0][fold]])
+                    y_classes_reais = cp.concatenate(
+                        [y_classes_reais, dict_data[lista_classes[i]][1][fold]])
+
+        y_train = self.one_hot(y_classes_reais)
+
+        # y_train = y_train.reshape(-1, 1)
+        y_classes_reais = y_classes_reais.reshape(-1, 1)
+        return x_train, y_train, y_classes_reais
+
 
 
 
