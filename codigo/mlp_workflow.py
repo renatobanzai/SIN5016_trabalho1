@@ -54,7 +54,7 @@ def treino_mlp_total(dt_obj, config):
     :param config: dicionario de configuracao dos hiperparametros de treinamento dos modelos
     :return:
     '''
-    logging.info("ini treino_svm_total")
+    logging.info("ini treino_mlp_total")
     ini_full = datetime.datetime.now()
     x_train, y_train_one_hot, y_train_class = dt_obj.get_mlp_prep(dt_obj.dict_artists_train)
     x_test, y_test_one_hot, y_test_class = dt_obj.get_mlp_prep(dt_obj.dict_artists_test)
@@ -66,7 +66,7 @@ def treino_mlp_total(dt_obj, config):
     pickle.dump(mlp_treinado, open("5016_mlp_gpu_{}.dat".format(len(dt_obj.unique_artists)), "wb"))
     fim_full = datetime.datetime.now()
     logging.info("tempo treino_mlp_total: {}".format(fim_full - ini_full))
-    logging.info("fim treino_svm_total")
+    logging.info("fim treino_mlp_total")
 
 def kfold_cross_validation(dt_obj, config):
     '''
@@ -83,40 +83,35 @@ def kfold_cross_validation(dt_obj, config):
     list_acuracia_kfolds = []
     bit = 0
     # percorre a lista com o dataset de cada bit do MOC/ECOC
-    for svm_dataset in dt_obj.list_datasets_moc_ecoc:
-        list_folds = np.arange(k)
-        result_test = []
-        result_train = []
 
-        # percorre os folds
-        for fold in range(k):
-            folds_train = np.delete(list_folds, fold)
-            folds_test = np.delete(list_folds, folds_train)
+    result_train = []
+    result_test = []
+    k = dt_obj.kfolds
+    list_folds = np.arange(k)
+    # percorre os folds
+    for fold in range(k):
+        folds_train = np.delete(list_folds, fold)
+        folds_test = np.delete(list_folds, folds_train)
 
-            # baseado no fold, define qual sera o cjto de treino
-            x_train, y_train_svm, y_train_class = dt_obj.get_moc_ecoc_x_y_fold(dt_obj.dict_artists_kfold,
-                                                                               svm_dataset[0],
-                                                                               svm_dataset[1],
-                                                                               folds_train)
-            # baseado no fold, define qual sera o cjto de teste
-            x_test, y_test_svm, y_test_class = dt_obj.get_moc_ecoc_x_y_fold(dt_obj.dict_artists_kfold,
-                                                                            svm_dataset[0],
-                                                                            svm_dataset[1],
-                                                                            folds_test)
+        # baseado no fold, define qual sera o cjto de treino
+        x_train, y_train_one_hot, y_train_class = dt_obj.get_mlp_prep_fold(dt_obj.dict_artists_kfold,
+                                                                           folds_train)
+        # baseado no fold, define qual sera o cjto de teste
+        x_test, y_test_one_hot, y_test_class = dt_obj.get_mlp_prep_fold(dt_obj.dict_artists_kfold,
+                                                                        folds_test)
 
-            # treina o modelo
-            svm_pesos, acuracia_treino, acuracia_test = treino_mlp((x_train, y_train_svm, y_train_class),
-                                                                   (x_test, y_test_svm, y_test_class), config=config)
+        # treina o modelo
+        mlp_treinado, acuracia_treino, acuracia_teste = treino_mlp((x_train, y_train_one_hot, y_train_class),
+                                                                   (x_test, y_test_one_hot, y_test_class),
+                                                                   config=config)
 
-            # guarda as metricas
-            result_train.append(acuracia_treino)
-            result_test.append(acuracia_test)
+        # guarda as metricas
+        result_train.append(acuracia_treino)
+        result_test.append(acuracia_teste)
 
-        bit += 1
-        # executados os folds, acumula a media da acuracia daquele "bit"
-        list_acuracia_kfolds.append(float(cp.array(result_test).mean()))
         logging.info("acuracia media kfold treino: {} ".format(cp.array(result_train).mean()))
         logging.info("acuracia media kfold teste: {} ".format(cp.array(result_test).mean()))
+        list_acuracia_kfolds.append(float(cp.array(result_test).mean()))
 
     fim_ = datetime.datetime.now()
     # loga/exibe as metricas obtidas.
@@ -131,7 +126,7 @@ def treino_hog():
     :return:
     '''
     # lendo os dados pre-processados
-    max_artists = 10
+    max_artists = 32
     dt_hog = dataprep.dataprep(hdf5_path="/home/madeleine/Documents/mestrado/5016/trabalho/data/hog_11_15_20_56",
                                  max_artists=max_artists)
 
@@ -145,12 +140,12 @@ def treino_hog():
     config = {}
     config['learning_rate'] = 0.75
     config['input_layer_size'] = 576
-    config['hidden_layer_size'] = 48
+    config['hidden_layer_size'] = 100
     config['n_iterations'] = 4000
     config['output_layer_size'] = max_artists
 
-    treino_mlp_total(dt_hog, config)
-    # kfold_cross_validation(dt_hog, config)
+    # treino_mlp_total(dt_hog, config)
+    kfold_cross_validation(dt_hog, config)
 
 
 # def treino_lbp():
