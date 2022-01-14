@@ -54,7 +54,9 @@ class dataprep:
             if self.lbp:
                 self.dict_artists[artist] = (dataset[:,1:]/255, dataset[:,:1])
             else:
-                self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
+                # self.dict_artists[artist] = (dataset[:, 1:], dataset[:, :1])
+                # media 0
+                self.dict_artists[artist] = (dataset[:, 1:] - cp.mean(dataset[:, 1:]), dataset[:, :1])
         return self.dict_artists
 
     def get_dictionary_kfold_test(self, train_percent=0.8, k=5):

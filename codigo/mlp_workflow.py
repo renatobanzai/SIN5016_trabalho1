@@ -126,7 +126,7 @@ def treino_hog():
     :return:
     '''
     # lendo os dados pre-processados
-    max_artists = 32
+    max_artists = 128
     dt_hog = dataprep.dataprep(hdf5_path="/home/madeleine/Documents/mestrado/5016/trabalho/data/hog_11_15_20_56",
                                  max_artists=max_artists)
 
@@ -138,12 +138,12 @@ def treino_hog():
 
     # dicionario de configuracao dos hiperparametros do modelo.
     config = {}
-    config['learning_rate'] = 0.1
+    config['learning_rate'] = 0.75
     config['input_layer_size'] = 576
-    config['hidden_layer_size'] = 100
+    config['hidden_layer_size'] = 60
     config['n_iterations'] = 4000
     config['output_layer_size'] = max_artists
-    config['l2'] = 0.04
+    config['l2'] = 0.02
     config['min_cost'] = 0.2
     config['activation'] = "relu"
     config['initialization_type'] = "xavier_2"

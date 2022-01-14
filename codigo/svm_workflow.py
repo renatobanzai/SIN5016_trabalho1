@@ -69,7 +69,12 @@ def treino_svm_total(dt_obj, config):
                                      config=config)
         moc_svms_full.append(svm_pesos)
 
-    pickle.dump(moc_svms_full, open("5016_svm_hog_moc_gpu_{}.dat".format(len(dt_obj.unique_artists)), "wb"))
+    obj_moc = {}
+    obj_moc["svms"] = moc_svms_full
+    obj_moc["dict_moc"] = dt_obj.dict_moc_ecoc_artists
+    obj_moc["dict_matriz_binarios"] = dt_obj.dict_matriz_binarios
+
+    pickle.dump(obj_moc, open("svm_hog_ecoc_4_gpu_{}.dat".format(len(dt_obj.unique_artists)), "wb"))
 
     resultados = []
     for svm_treinado in moc_svms_full:
