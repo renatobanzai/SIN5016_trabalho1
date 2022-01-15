@@ -27,6 +27,7 @@ class mlp_gpu:
         self.n = 0
         self.costs = []
         self.config = config
+        self.one_hot_encoder = None
 
     def sigmoid_numpy(self, Z):
         return 1 / (1 + np.exp(-Z))
@@ -48,11 +49,11 @@ class mlp_gpu:
         for l in range(1, len(self.layers_size)):
             # inicializacao como no artigo sugerido
             if self.initialization_type == 'xavier_1':
-                r = np.sqrt(1 / self.layers_size[l-1]) * 10
+                r = np.sqrt(1 / self.layers_size[l-1]) * 100
                 self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
                 self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
             elif self.initialization_type == 'xavier_2':
-                r = np.sqrt(6)  / (self.layers_size[l - 1] + self.layers_size[l]) * 10
+                r = np.sqrt(6)  / (self.layers_size[l - 1] + self.layers_size[l]) * 100
                 self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
                 self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
             elif self.initialization_type == 'randn':

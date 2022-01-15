@@ -288,7 +288,7 @@ class dataprep:
         return "".join(list_str)
 
 
-    def decoder_resultados_oc(self, dict_moc, resultados, y_classes_reais, tipo=""):
+    def decoder_resultados_oc(self, dict_moc, resultados, y_classes_reais, tipo="", calcular_acuracia=True):
         logging.info("decode de {} linhas.".format(len(resultados[0])))
         ini = datetime.datetime.now()
         # cria um dicionário inverso para o decode
@@ -321,18 +321,19 @@ class dataprep:
         res_moc_classes = cp.array(res_moc_classes).reshape(-1, 1)
 
         res_moc_classes = res_moc_classes.reshape(-1, 1)
-        y_classes_reais = y_classes_reais.reshape(-1, 1)
         fim = datetime.datetime.now()
         logging.info("decode tempo: {}".format(fim-ini))
-        logging.info("ecoc: acuracia %s %f", tipo, (res_moc_classes == y_classes_reais).astype(int).mean())
+        if calcular_acuracia:
+            y_classes_reais = y_classes_reais.reshape(-1, 1)
+            logging.info("ecoc: acuracia %s %f", tipo, (res_moc_classes == y_classes_reais).astype(int).mean())
+        return res_moc_classes
 
     def one_hot(self, y):
         enc = OneHotEncoder(sparse=False, categories='auto')
         one_hot_y = np.array(y.get())
         one_hot_y = enc.fit_transform(one_hot_y.reshape(len(one_hot_y), -1))
         one_hot_y = cp.array(one_hot_y)
-
-
+        self.one_hot_encoder = enc
         return one_hot_y
 
     def get_mlp_prep(self, dict_data, lbp=False):

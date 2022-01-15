@@ -57,12 +57,14 @@ def treino_mlp_total(dt_obj, config):
     logging.info("ini treino_mlp_total")
     ini_full = datetime.datetime.now()
     x_train, y_train_one_hot, y_train_class = dt_obj.get_mlp_prep(dt_obj.dict_artists_train)
+    one_hot_encoder = dt_obj.one_hot_encoder
     x_test, y_test_one_hot, y_test_class = dt_obj.get_mlp_prep(dt_obj.dict_artists_test)
 
     mlp_treinado, acuracia_treino, acuracia_teste = treino_mlp((x_train, y_train_one_hot, y_train_class),
                                                                (x_test, y_test_one_hot, y_test_class),
                                                                config=config)
 
+    mlp_treinado.one_hot_encoder = one_hot_encoder
     pickle.dump(mlp_treinado, open("5016_mlp_gpu_{}.dat".format(len(dt_obj.unique_artists)), "wb"))
     fim_full = datetime.datetime.now()
     logging.info("tempo treino_mlp_total: {}".format(fim_full - ini_full))
@@ -126,7 +128,7 @@ def treino_hog():
     :return:
     '''
     # lendo os dados pre-processados
-    max_artists = 128
+    max_artists = 64
     dt_hog = dataprep.dataprep(hdf5_path="/home/madeleine/Documents/mestrado/5016/trabalho/data/hog_11_15_20_56",
                                  max_artists=max_artists)
 
@@ -140,17 +142,17 @@ def treino_hog():
     config = {}
     config['learning_rate'] = 0.75
     config['input_layer_size'] = 576
-    config['hidden_layer_size'] = 60
+    config['hidden_layer_size'] = 120
     config['n_iterations'] = 4000
     config['output_layer_size'] = max_artists
     config['l2'] = 0.02
-    config['min_cost'] = 0.2
-    config['activation'] = "relu"
+    config['min_cost'] = 0.5
+    config['activation'] = "sigmoid"
     config['initialization_type'] = "xavier_2"
 
 
-    # treino_mlp_total(dt_hog, config)
-    kfold_cross_validation(dt_hog, config)
+    treino_mlp_total(dt_hog, config)
+    # kfold_cross_validation(dt_hog, config)
 
 
 # def treino_lbp():
