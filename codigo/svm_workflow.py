@@ -11,6 +11,14 @@ import pickle
 
 
 def treino_svm(train, test, config, valida_teste=True):
+    '''
+    treina um svm
+    :param train:dados para treino [x, y]
+    :param test: dados para teste [x, y]
+    :param config: dicionario com hiperparametros
+    :param valida_teste: True faz uma comparacao com teste, False apenas treina
+    :return:
+    '''
     ini_treino = datetime.datetime.now()
     x_train, y_train_svm, y_train_class = train
 
@@ -40,6 +48,12 @@ def treino_svm(train, test, config, valida_teste=True):
 
 
 def treino_svm_total(dt_obj, config):
+    '''
+    Treina um svm fazendo o split de teste e treino
+    :param dt_obj: objeto dataprep com dados carregados
+    :param config: dicionario com as configuracoes de hiperparamentros
+    :return:
+    '''
     logging.info("ini treino_svm_total")
     ini_full = datetime.datetime.now()
 
@@ -89,6 +103,12 @@ def treino_svm_total(dt_obj, config):
 
 
 def kfold_cross_validation(dt_obj, config):
+    '''
+    Treina e faz splits de kfolds
+    :param dt_obj: objeto do tipoe dataprep preenchido
+    :param config: hiperparametros
+    :return:
+    '''
     logging.info("ini kfold_cross_validation")
     ini_ = datetime.datetime.now()
 
@@ -102,20 +122,25 @@ def kfold_cross_validation(dt_obj, config):
         result_test = []
         result_train = []
 
+        # percorrendo os folds
         for fold in range(k):
+            # separando o teste e o treino
             folds_train = np.delete(list_folds, fold)
             folds_test = np.delete(list_folds, folds_train)
 
+            # obtendo um array cupy ou numpy dos folds de treino
             x_train, y_train_svm, y_train_class = dt_obj.get_moc_ecoc_x_y_fold(dt_obj.dict_artists_kfold,
                                                                                svm_dataset[0],
                                                                                svm_dataset[1],
                                                                                folds_train)
 
+            # obtendo um array cupy ou numpy do folds de teste
             x_test, y_test_svm, y_test_class = dt_obj.get_moc_ecoc_x_y_fold(dt_obj.dict_artists_kfold,
                                                                             svm_dataset[0],
                                                                             svm_dataset[1],
                                                                             folds_test)
 
+            # treinando o modelo
             svm_pesos, acuracia_treino, acuracia_test = treino_svm((x_train, y_train_svm, y_train_class),
                                                                    (x_test, y_test_svm, y_test_class), config=config)
             result_train.append(acuracia_treino)

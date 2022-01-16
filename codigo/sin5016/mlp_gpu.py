@@ -10,7 +10,11 @@ import random
 
 class mlp_gpu:
     def __init__(self, config={}):
-        logging.info("instanciado um svm")
+        '''
+        instancia uma nova classe do tipo mlp
+        :param config: dicionario com hiperparametros
+        '''
+        logging.info("instanciado um mlp")
         self.learning_rate = config["learning_rate"]
         self.input_layer_size = config["input_layer_size"]
         self.hidden_layer_size = config["hidden_layer_size"]
@@ -45,9 +49,15 @@ class mlp_gpu:
         return A
 
     def initialize_parameters(self):
+        '''
+        Prepara os parametros para o forward e backward
+        :return:
+        '''
+        # fixando a semente de randomizacao para facilitar comparacoes
         cp.random.seed(1)
         for l in range(1, len(self.layers_size)):
             # inicializacao como no artigo sugerido
+            # http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
             if self.initialization_type == 'xavier_1':
                 r = np.sqrt(1 / self.layers_size[l-1]) * 100
                 self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
@@ -57,15 +67,22 @@ class mlp_gpu:
                 self.parameters["W" + str(l)] = cp.random.uniform(-r, r, (self.layers_size[l], self.layers_size[l - 1]))
                 self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
             elif self.initialization_type == 'randn':
+                # inicializacao por randomizacao comum
                 self.parameters["W" + str(l)] = cp.random.randn(self.layers_size[l], self.layers_size[l - 1])
                 self.parameters["b" + str(l)] = cp.zeros((self.layers_size[l], 1))
 
 
 
     def forward(self, X):
+        '''
+        passo forward
+        :param X: features
+        :return:
+        '''
         store = {}
 
         A = X.T
+        # percorrendo as camadas de input e ocultas
         for l in range(self.L - 1):
             Z = self.parameters["W" + str(l + 1)].dot(A) + self.parameters["b" + str(l + 1)]
             if self.activation == "sigmoid":
@@ -77,6 +94,7 @@ class mlp_gpu:
             store["W" + str(l + 1)] = self.parameters["W" + str(l + 1)]
             store["Z" + str(l + 1)] = Z
 
+        # percorrendo a camada de output
         Z = self.parameters["W" + str(self.L)].dot(A) + self.parameters["b" + str(self.L)]
         A = self.softmax(Z)
         store["A" + str(self.L)] = A
@@ -86,6 +104,11 @@ class mlp_gpu:
         return A, store
 
     def forward_cpu(self, X):
+        '''
+        metodo especifico para tornar a classe intercambiavel entre gpu e cpu
+        :param X:
+        :return:
+        '''
         store = {}
 
         A = X.T
@@ -116,6 +139,11 @@ class mlp_gpu:
         return s * (1 - s)
 
     def dictionary_to_vector(self, params_dict):
+        '''
+        converte o dicionario de camadas/pesos para vetor
+        :param params_dict:
+        :return:
+        '''
         count = 0
         for key in params_dict.keys():
             new_vector = cp.reshape(params_dict[key], (-1, 1))
@@ -128,7 +156,13 @@ class mlp_gpu:
         return theta_vector
 
     def backward(self, X, Y, store):
-
+        '''
+        passo backward
+        :param X: features
+        :param Y: y desejado
+        :param store: cache com pesos anteriormente definidos
+        :return:
+        '''
         derivatives = {}
 
         store["A0"] = X.T
@@ -162,6 +196,12 @@ class mlp_gpu:
         return derivatives
 
     def fit(self, X, Y):
+        '''
+        treino
+        :param X: features
+        :param Y: y desejado
+        :return:
+        '''
         logging.info("svm.fit")
         logging.info("config: {}".format(self.config))
         cp.random.seed(1)
@@ -175,12 +215,12 @@ class mlp_gpu:
         for loop in range(self.n_iterations):
             A, store = self.forward(X)
             # adicionando regularizacao l2
-
             cost = - (1 / self.n) * cp.sum(
                 cp.multiply(Y, cp.log(A.T)) + cp.multiply(1 - Y, cp.log(1 - A.T)))
             L2_reg = (self.l2 / (2 * self.n)) * cp.sum(cp.square(self.dictionary_to_vector(self.parameters)))
             cost += L2_reg
 
+            # caso atinja o threshold de custo
             if cost <= self.min_cost:
                 end_loop = datetime.datetime.now()
                 logging.info("atingiu custo minimo: {}, iteracao:{}, tempo:{}".format(cost, loop, (end_loop - start_loop)))
@@ -189,12 +229,15 @@ class mlp_gpu:
 
             derivatives = self.backward(X, Y, store)
 
+            # atualizando os pesos e bias
             for l in range(1, self.L + 1):
                 self.parameters["W" + str(l)] = self.parameters["W" + str(l)] - self.learning_rate * derivatives[
                     "dW" + str(l)]
                 self.parameters["b" + str(l)] = self.parameters["b" + str(l)] - self.learning_rate * derivatives[
                     "db" + str(l)]
 
+            # a cada 1000 epocas, loga os valores de custo
+            # optamos por diminuir o log para ganhar tempo de processamento
             if loop % 1000 == 0:
                 end_loop = datetime.datetime.now()
                 logging.info("Custo: {}, iteracao:{}, tempo:{}".format(cost, loop, (end_loop-start_loop)))
@@ -202,7 +245,7 @@ class mlp_gpu:
 
             self.costs.append(cost)
 
-        #convert cupy to numpy to enable cpu
+        # convertendo os arrays de gpu para cpu
         for x in self.parameters.keys():
             self.parameters_numpy[x] = cp.asnumpy(self.parameters[x])
 
@@ -229,6 +272,12 @@ class mlp_gpu:
 
 
     def acuracia(self, y_softmax, y):
+        '''
+        Calcula a acuracia comparando 2 ys
+        :param y_softmax:
+        :param y:
+        :return:
+        '''
         y_predito = cp.argmax(y_softmax, axis=0)
         y_desejado = cp.argmax(y, axis=1)
         return (y_predito==y_desejado).astype(int).mean()
